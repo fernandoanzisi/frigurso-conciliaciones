@@ -1700,8 +1700,28 @@ if(localStorage.getItem('fcon_pass_hash')){
   try{ yaDesbloqueado = sessionStorage.getItem('fcon_unlocked') === '1'; }catch(e){}
   if(yaDesbloqueado) fgOcultarLock();
 }
+let _swRegistration=null;
+function avisarNuevaVersion(){
+  const el=document.getElementById('toast');
+  clearTimeout(el._h);
+  el.innerHTML='🔄 Hay una versión nueva — <u>tocá para actualizar</u>';
+  el.onclick=()=>{ if(_swRegistration&&_swRegistration.waiting) _swRegistration.waiting.postMessage({type:'SKIP_WAITING'}); };
+  el.style.pointerEvents='all';
+  el.classList.add('show');
+}
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    _swRegistration=reg;
+    if(reg.waiting && navigator.serviceWorker.controller) avisarNuevaVersion();
+    reg.addEventListener('updatefound', ()=>{
+      const nuevo=reg.installing;
+      if(!nuevo) return;
+      nuevo.addEventListener('statechange', ()=>{
+        if(nuevo.state==='installed' && navigator.serviceWorker.controller) avisarNuevaVersion();
+      });
+    });
+  }).catch(()=>{});
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>location.reload());
 }
 </script>
 </body>

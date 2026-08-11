@@ -1,11 +1,11 @@
-const CACHE = 'conciliaciones-v2';
+const CACHE = 'conciliaciones-v3';
 const PRECACHE = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(c =>
       Promise.all(PRECACHE.map(url => c.add(url).catch(() => {})))
-    ).then(() => self.skipWaiting())
+    )
   );
 });
 
