@@ -9,6 +9,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js" defer></script>
 <style>
 :root{
@@ -284,13 +285,17 @@ input,select,textarea{font-family:inherit;}
       <div class="field-row">
         <div class="field">
           <label>Fuente A</label>
-          <select id="conc-fuenteA" onchange="actualizarResumenConciliar()"></select>
+          <select id="conc-fuenteA" onchange="onFuenteAChange()"></select>
         </div>
-        <div class="field">
+        <div class="field" id="conc-fuenteB-wrap">
           <label>Fuente B</label>
           <select id="conc-fuenteB" onchange="actualizarResumenConciliar()"></select>
         </div>
       </div>
+      <label class="chk-row" id="conc-mismaplanilla-row" style="display:none;">
+        <input type="checkbox" id="conc-mismaplanilla" onchange="onMismaPlanillaChange()">
+        <span><div class="l">🔁 Es la misma planilla (un solo excel con todo)</div><div class="d">Busca duplicados internos en vez de cruzar contra otra fuente — más rápido cuando ya armaste un excel consolidado.</div></span>
+      </label>
       <div class="field help" id="conc-modo-hint" style="margin-top:-6px;margin-bottom:16px;"></div>
 
       <div class="section-title" style="margin-top:6px;">Criterios de cruce</div>
@@ -745,6 +750,26 @@ function renderConciliarSelects(){
   b.innerHTML='<option value="">— Elegir —</option>'+opts;
   if(FUENTES.some(f=>f.id===hadA)) a.value=hadA;
   if(FUENTES.some(f=>f.id===hadB)) b.value=hadB;
+  document.getElementById('conc-mismaplanilla-row').style.display=a.value?'flex':'none';
+  onMismaPlanillaChange();
+}
+function onFuenteAChange(){
+  const a=document.getElementById('conc-fuenteA');
+  document.getElementById('conc-mismaplanilla-row').style.display=a.value?'flex':'none';
+  onMismaPlanillaChange();
+}
+function onMismaPlanillaChange(){
+  const misma=document.getElementById('conc-mismaplanilla').checked;
+  const aId=document.getElementById('conc-fuenteA').value;
+  const wrapB=document.getElementById('conc-fuenteB-wrap');
+  const b=document.getElementById('conc-fuenteB');
+  if(misma){
+    wrapB.style.display='none';
+    b.value=aId;
+  } else {
+    wrapB.style.display='';
+    if(b.value===aId) b.value='';
+  }
   actualizarResumenConciliar();
 }
 function actualizarResumenConciliar(){
@@ -989,14 +1014,9 @@ function generarAviso(gi, tabKey){
 }
 
 // ═══════════════════════════════════════════════════════════════
-// RENDER: INFORME GERENCIAL
+// DATOS COMPARTIDOS DEL INFORME (usado por HTML, Excel, PDF y PPT)
 // ═══════════════════════════════════════════════════════════════
-function renderInforme(c){
-  if(!c){ document.getElementById('informe-vacio').style.display='block'; document.getElementById('informe-contenido').style.display='none'; return; }
-  document.getElementById('informe-vacio').style.display='none';
-  const cont=document.getElementById('informe-contenido');
-  cont.style.display='block';
-
+function calcularInformeData(c){
   const r=c.resumen;
   const totalRegistros=r.totalA+r.totalB;
   const pctConciliado=r.totalA>0 ? Math.round((r.countConciliados/r.totalA)*100) : 0;
@@ -1019,6 +1039,20 @@ function renderInforme(c){
   });
   const rankUnidadArr=Object.entries(rankUnidad).sort((a,b)=>b[1].monto-a[1].monto);
   const rankUsuarioArr=Object.entries(rankUsuario).sort((a,b)=>b[1].monto-a[1].monto);
+  const historialMismoPar=CONCILIACIONES.filter(x=>x.fuenteAId===c.fuenteAId && x.fuenteBId===c.fuenteBId).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  return {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar};
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER: INFORME GERENCIAL
+// ═══════════════════════════════════════════════════════════════
+function renderInforme(c){
+  if(!c){ document.getElementById('informe-vacio').style.display='block'; document.getElementById('informe-contenido').style.display='none'; return; }
+  document.getElementById('informe-vacio').style.display='none';
+  const cont=document.getElementById('informe-contenido');
+  cont.style.display='block';
+
+  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
 
   let html='<div class="kpi-grid">'+
     '<div class="kpi"><div class="kl">Registros analizados</div><div class="kv">'+totalRegistros+'</div><div class="ks">'+(c.esSelfCheck?c.fuenteANombre:c.fuenteANombre+' + '+c.fuenteBNombre)+'</div></div>'+
@@ -1037,7 +1071,6 @@ function renderInforme(c){
     rankUsuarioArr.map(([n,v])=>'<tr><td>'+n+'</td><td>'+v.cant+'</td><td>'+fmtMoneda(v.monto)+'</td></tr>').join('')+'</tbody></table>'
     : '<div class="empty"><p>Sin datos de duplicados para rankear.</p></div>')+'</div>';
 
-  const historialMismoPar=CONCILIACIONES.filter(x=>x.fuenteAId===c.fuenteAId && x.fuenteBId===c.fuenteBId).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   if(historialMismoPar.length>1){
     const vals=historialMismoPar.map(x=>x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB);
     const max=Math.max(...vals,1);
@@ -1057,18 +1090,248 @@ function renderInforme(c){
 }
 
 // ═══════════════════════════════════════════════════════════════
+// PALETA DE MARCA (compartida por Excel / PDF / PowerPoint)
+// ═══════════════════════════════════════════════════════════════
+const BRAND={teal:'2DD4BF', accent:'3B82F6', green:'22C55E', red:'EF4444', gold:'F5B53F', purple:'A78BFA', navy:'0F1729', ink:'0F172A', text2:'64748B'};
+
+// ═══════════════════════════════════════════════════════════════
+// GRÁFICOS (canvas → PNG), reutilizados en Excel y PDF
+// ═══════════════════════════════════════════════════════════════
+function _canvasCtx(w,h){
+  const scale=2;
+  const cv=document.createElement('canvas');
+  cv.width=Math.round(w*scale); cv.height=Math.round(h*scale);
+  const ctx=cv.getContext('2d');
+  ctx.scale(scale,scale);
+  return {cv,ctx};
+}
+function _fmtCorto(n){
+  const abs=Math.abs(n);
+  if(abs>=1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';
+  if(abs>=1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'')+'k';
+  return String(Math.round(n));
+}
+function _shade(hex, pct){
+  hex=hex.replace('#','');
+  const num=parseInt(hex,16);
+  let rr=(num>>16)+Math.round(2.55*pct), gg=((num>>8)&0xff)+Math.round(2.55*pct), bb=(num&0xff)+Math.round(2.55*pct);
+  rr=Math.max(0,Math.min(255,rr)); gg=Math.max(0,Math.min(255,gg)); bb=Math.max(0,Math.min(255,bb));
+  return '#'+((1<<24)+(rr<<16)+(gg<<8)+bb).toString(16).slice(1);
+}
+function _dataURLBase64(durl){ return durl.split(',')[1]; }
+
+function chartBarrasPNG(items, opts){
+  opts=opts||{};
+  const w=opts.ancho||620, h=opts.alto||Math.max(190, 42*Math.max(items.length,1)+(opts.title?58:24));
+  const {cv,ctx}=_canvasCtx(w,h);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,w,h);
+  if(opts.title){ ctx.fillStyle='#0F172A'; ctx.font='bold 16px Arial,sans-serif'; ctx.textAlign='left'; ctx.fillText(opts.title, 18, 30); }
+  if(!items.length){
+    ctx.fillStyle='#9CA3AF'; ctx.font='13px Arial,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Sin datos para mostrar', w/2, h/2);
+    return cv.toDataURL('image/png');
+  }
+  const color=opts.color||'#2DD4BF';
+  const padTop=opts.title?52:20, padLeft=Math.min(200, w*0.32), padRight=95, padBottom=14;
+  const max=Math.max(...items.map(i=>i.value),1);
+  const rowH=(h-padTop-padBottom)/items.length;
+  const barMaxW=w-padLeft-padRight;
+  items.forEach((it,i)=>{
+    const y=padTop+i*rowH;
+    const barH=Math.min(24, rowH*0.55);
+    const by=y+(rowH-barH)/2;
+    ctx.fillStyle='#334155'; ctx.font='12.5px Arial,sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    const lbl=it.label.length>24? it.label.slice(0,23)+'…' : it.label;
+    ctx.fillText(lbl, padLeft-12, by+barH/2);
+    ctx.fillStyle='#F1F5F9'; ctx.fillRect(padLeft, by, barMaxW, barH);
+    const bw=Math.max(3,(it.value/max)*barMaxW);
+    const grad=ctx.createLinearGradient(padLeft,0,padLeft+bw,0);
+    grad.addColorStop(0,color); grad.addColorStop(1,_shade(color,-14));
+    ctx.fillStyle=grad; ctx.fillRect(padLeft, by, bw, barH);
+    ctx.fillStyle='#0F172A'; ctx.font='bold 12px Arial,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText(opts.money? fmtMoneda(it.value): String(it.value), padLeft+bw+8, by+barH/2);
+  });
+  return cv.toDataURL('image/png');
+}
+
+function chartDonaPNG(segments, opts){
+  opts=opts||{};
+  const w=opts.ancho||520, h=opts.alto||280;
+  const {cv,ctx}=_canvasCtx(w,h);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,w,h);
+  if(opts.title){ ctx.fillStyle='#0F172A'; ctx.font='bold 16px Arial,sans-serif'; ctx.textAlign='left'; ctx.fillText(opts.title, 18, 30); }
+  const total=segments.reduce((s,x)=>s+(x.value>0?x.value:0),0);
+  const cy=h/2+(opts.title?10:0), cx=140;
+  const rOuter=Math.min(cx-24, h/2-24, 92), rInner=rOuter*0.6;
+  if(!total){
+    ctx.fillStyle='#9CA3AF'; ctx.font='13px Arial,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Sin datos para mostrar', w/2, h/2);
+    return cv.toDataURL('image/png');
+  }
+  let ang=-Math.PI/2;
+  segments.forEach(seg=>{
+    const frac=(seg.value>0?seg.value:0)/total; if(frac<=0) return;
+    const a2=ang+frac*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,rOuter,ang,a2); ctx.closePath();
+    ctx.fillStyle=seg.color; ctx.fill();
+    ang=a2;
+  });
+  ctx.globalCompositeOperation='destination-out';
+  ctx.beginPath(); ctx.arc(cx,cy,rInner,0,Math.PI*2); ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#0F172A'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='bold 14px Arial,sans-serif';
+  ctx.fillText(fmtMoneda(total), cx, cy-7);
+  ctx.font='11px Arial,sans-serif'; ctx.fillStyle='#64748B';
+  ctx.fillText(opts.centerSub||'Total', cx, cy+13);
+  let ly=(opts.title?56:26);
+  const lx=cx+rOuter+38;
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  segments.forEach(seg=>{
+    const pct=total? Math.round((seg.value>0?seg.value:0)/total*100):0;
+    ctx.fillStyle=seg.color; ctx.fillRect(lx, ly-6, 12, 12);
+    ctx.fillStyle='#0F172A'; ctx.font='bold 12.5px Arial,sans-serif';
+    ctx.fillText(seg.label+'   '+pct+'%', lx+18, ly);
+    ctx.fillStyle='#64748B'; ctx.font='11px Arial,sans-serif';
+    ctx.fillText(fmtMoneda(seg.value), lx+18, ly+15);
+    ly+=38;
+  });
+  return cv.toDataURL('image/png');
+}
+
+function chartLineaPNG(labels, values, opts){
+  opts=opts||{};
+  const w=opts.ancho||620, h=opts.alto||250;
+  const {cv,ctx}=_canvasCtx(w,h);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,w,h);
+  if(opts.title){ ctx.fillStyle='#0F172A'; ctx.font='bold 16px Arial,sans-serif'; ctx.textAlign='left'; ctx.fillText(opts.title, 18, 30); }
+  if(values.length<2){
+    ctx.fillStyle='#9CA3AF'; ctx.font='12.5px Arial,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Hace falta más de una conciliación de este mismo par para ver la evolución', w/2, h/2);
+    return cv.toDataURL('image/png');
+  }
+  const color=opts.color||'#F5B53F';
+  const padTop=opts.title?50:20, padLeft=64, padRight=20, padBottom=34;
+  const max=Math.max(...values,1);
+  const plotW=w-padLeft-padRight, plotH=h-padTop-padBottom;
+  ctx.strokeStyle='#E5E7EB'; ctx.fillStyle='#94A3B8'; ctx.font='10px Arial,sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=padTop+plotH-(plotH*i/4);
+    ctx.beginPath(); ctx.moveTo(padLeft,y); ctx.lineTo(w-padRight,y); ctx.stroke();
+    ctx.fillText(_fmtCorto(max*i/4), padLeft-8, y);
+  }
+  const stepX=plotW/(values.length-1);
+  const pts=values.map((v,i)=>({x:padLeft+i*stepX, y:padTop+plotH-(v/max)*plotH}));
+  ctx.beginPath(); ctx.moveTo(pts[0].x, padTop+plotH);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.lineTo(pts[pts.length-1].x, padTop+plotH); ctx.closePath();
+  const grad=ctx.createLinearGradient(0,padTop,0,padTop+plotH);
+  grad.addColorStop(0,color+'50'); grad.addColorStop(1,color+'05');
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.beginPath(); pts.forEach((p,i)=> i===0? ctx.moveTo(p.x,p.y): ctx.lineTo(p.x,p.y));
+  ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.stroke();
+  pts.forEach((p,i)=>{
+    ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle=color; ctx.stroke();
+    ctx.fillStyle='#0F172A'; ctx.font='bold 10.5px Arial,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText(_fmtCorto(values[i]), p.x, p.y-8);
+    ctx.fillStyle='#64748B'; ctx.font='10px Arial,sans-serif'; ctx.textBaseline='top';
+    ctx.fillText(labels[i], p.x, h-padBottom+8);
+  });
+  return cv.toDataURL('image/png');
+}
+function segComposicionDe(c, r, montoRiesgoTotal){
+  return c.esSelfCheck
+    ? [{label:'Sin duplicar', value:Math.max(0,r.montoA-montoRiesgoTotal), color:'#'+BRAND.green},{label:'Riesgo duplicados', value:montoRiesgoTotal, color:'#'+BRAND.gold}]
+    : [{label:'Conciliado', value:r.montoConciliado, color:'#'+BRAND.green},{label:'Pendiente', value:r.montoPendientesA+r.montoPendientesB, color:'#'+BRAND.red},{label:'Riesgo duplicados', value:montoRiesgoTotal, color:'#'+BRAND.gold}];
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════
 function _filaExportArr(r){ return [r.fecha?fmtFecha(r.fecha):'', r.comprobante||'', r.proveedor||'', r.unidadNegocio||'', r.usuario||'', r.importe||0]; }
-function exportarExcel(){
+function _descargarBlob(blob, filename){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+async function exportarExcel(){
   const c=_conciliacionActual; if(!c) return;
-  const r=c.resumen;
-  const wb=XLSX.utils.book_new();
-  const resumenAoA=[
-    ['Frigurso Conciliaciones — Informe Gerencial'],
+  if(typeof ExcelJS==='undefined'){ toast('No se pudo cargar la librería de Excel (revisá tu conexión)'); return; }
+  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
+
+  const wb=new ExcelJS.Workbook();
+  wb.creator='Frigurso Conciliaciones'; wb.created=new Date();
+
+  // ── DASHBOARD ──────────────────────────────────────────────
+  const ws=wb.addWorksheet('Dashboard', {views:[{showGridLines:false}]});
+  ws.columns=[{width:3},{width:22},{width:22},{width:22},{width:22},{width:22},{width:22},{width:3}];
+  ws.mergeCells('B2:G3');
+  const t=ws.getCell('B2');
+  t.value='Frigurso Conciliaciones — Informe Gerencial';
+  t.font={bold:true,size:18,color:{argb:'FF'+BRAND.ink}};
+  t.alignment={vertical:'middle'};
+  ws.mergeCells('B4:G4');
+  const sub=ws.getCell('B4');
+  sub.value=fmtFechaHora(c.fecha)+'  ·  '+c.fuenteANombre+(c.esSelfCheck?' (revisión interna de duplicados)':' vs '+c.fuenteBNombre);
+  sub.font={italic:true,size:11,color:{argb:'FF'+BRAND.text2}};
+
+  const kpiDefs=[
+    {label:'REGISTROS ANALIZADOS', value:String(totalRegistros), sub:(c.esSelfCheck?c.fuenteANombre:c.fuenteANombre+' + '+c.fuenteBNombre), color:BRAND.accent},
+    {label:'% CONCILIADO', value:(c.esSelfCheck?'—':pctConciliado+'%'), sub:r.countConciliados+' pares cruzados', color:BRAND.green},
+    {label:'MONTO PENDIENTE', value:fmtMoneda(r.montoPendientesA+r.montoPendientesB), sub:(r.countPendientesA+r.countPendientesB)+' registros sin cruzar', color:BRAND.red},
+    {label:'RIESGO POR DUPLICADOS', value:fmtMoneda(montoRiesgoTotal), sub:gruposDupTotal+' grupos detectados', color:BRAND.gold},
+  ];
+  const tileCols=['B','C','D','E'];
+  kpiDefs.forEach((k,i)=>{
+    const col=tileCols[i];
+    const fillLight='FF'+_shade('#'+k.color,84).replace('#','');
+    ['6','7','8','9'].forEach(rn=>{ ws.getCell(col+rn).fill={type:'pattern',pattern:'solid',fgColor:{argb:fillLight}}; });
+    const lblCell=ws.getCell(col+'6');
+    lblCell.value=k.label; lblCell.font={bold:true,size:9,color:{argb:'FF'+BRAND.text2}};
+    ws.mergeCells(col+'7:'+col+'8');
+    const vCell=ws.getCell(col+'7');
+    vCell.value=k.value; vCell.font={bold:true,size:20,color:{argb:'FF'+k.color}}; vCell.alignment={vertical:'middle'};
+    const sCell=ws.getCell(col+'9');
+    sCell.value=k.sub; sCell.font={italic:true,size:8.5,color:{argb:'FF'+BRAND.text2}};
+    const edge={style:'thin',color:{argb:'FF'+k.color}};
+    ws.getCell(col+'6').border={top:{style:'medium',color:{argb:'FF'+k.color}},left:edge,right:edge};
+    ws.getCell(col+'7').border={left:edge,right:edge};
+    ws.getCell(col+'8').border={left:edge,right:edge};
+    ws.getCell(col+'9').border={bottom:{style:'medium',color:{argb:'FF'+k.color}},left:edge,right:edge};
+  });
+  ws.getRow(6).height=16; ws.getRow(7).height=22; ws.getRow(8).height=10; ws.getRow(9).height=20;
+
+  function _addImg(dataURL, col, row, w, h){
+    const imgId=wb.addImage({base64:_dataURLBase64(dataURL), extension:'png'});
+    ws.addImage(imgId, {tl:{col,row}, ext:{width:w,height:h}});
+  }
+  const segComposicion=segComposicionDe(c, r, montoRiesgoTotal);
+  _addImg(chartDonaPNG(segComposicion, {title:'Composición del monto analizado', ancho:560, alto:270}), 1, 10, 560, 270);
+  const barUnidadH=Math.max(190, 42*Math.min(rankUnidadArr.length,8)+58);
+  _addImg(chartBarrasPNG(rankUnidadArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por unidad de negocio', color:'#'+BRAND.accent, money:true, ancho:600, alto:barUnidadH}), 1, 26, 600, barUnidadH);
+  const barUsuarioH=Math.max(190, 42*Math.min(rankUsuarioArr.length,8)+58);
+  const rowUsuario=26+Math.ceil(barUnidadH/20)+2;
+  _addImg(chartBarrasPNG(rankUsuarioArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por usuario', color:'#'+BRAND.purple, money:true, ancho:600, alto:barUsuarioH}), 1, rowUsuario, 600, barUsuarioH);
+  if(historialMismoPar.length>1){
+    const rowEvol=rowUsuario+Math.ceil(barUsuarioH/20)+2;
+    _addImg(chartLineaPNG(
+      historialMismoPar.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})),
+      historialMismoPar.map(x=>x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB),
+      {title:'Evolución del riesgo en el tiempo', color:'#'+BRAND.gold, ancho:600, alto:230}
+    ), 1, rowEvol, 600, 230);
+  }
+
+  // ── RESUMEN ────────────────────────────────────────────────
+  const wsR=wb.addWorksheet('Resumen');
+  wsR.columns=[{header:'Campo',key:'k',width:26},{header:'Valor',key:'v',width:30}];
+  wsR.getRow(1).eachCell(cell=>{ cell.font={bold:true,color:{argb:'FFFFFFFF'}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+BRAND.navy}}; });
+  const resumenRows=[
     ['Fecha', fmtFechaHora(c.fecha)],
-    ['Fuente A', c.fuenteANombre], ['Fuente B', c.esSelfCheck?'(misma que A)':c.fuenteBNombre],
-    [],
+    ['Fuente A', c.fuenteANombre],
+    ['Fuente B', c.esSelfCheck?'(misma que A)':c.fuenteBNombre],
     ['Registros A', r.totalA], ['Registros B', r.totalB],
     ['Conciliados', r.countConciliados], ['Monto conciliado', r.montoConciliado],
     ['Pendientes A', r.countPendientesA], ['Monto pendiente A', r.montoPendientesA],
@@ -1076,87 +1339,262 @@ function exportarExcel(){
     ['Grupos duplicados A', r.countGruposDupA], ['Riesgo duplicados A', r.montoRiesgoDupA],
     ['Grupos duplicados B', r.countGruposDupB], ['Riesgo duplicados B', r.montoRiesgoDupB],
   ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumenAoA), 'Resumen');
-  const header=['Fecha','Comprobante','Proveedor','Unidad de negocio','Usuario','Importe'];
-  if(c.conciliados.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header,...c.conciliados.map(p=>_filaExportArr(p.a))]), 'Conciliados');
-  if(c.pendientesA.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header,...c.pendientesA.map(_filaExportArr)]), 'Pendientes A');
-  if(c.pendientesB.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header,...c.pendientesB.map(_filaExportArr)]), 'Pendientes B');
-  const dupRows=[];
-  [...c.duplicadosA,...c.duplicadosB].forEach((g,i)=>g.forEach(row=>dupRows.push(['Grupo '+(i+1), ..._filaExportArr(row)])));
-  if(dupRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Grupo',...header],...dupRows]), 'Duplicados');
-  XLSX.writeFile(wb, 'conciliacion_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  resumenRows.forEach(row=>{
+    const nuevaFila=wsR.addRow(row);
+    nuevaFila.getCell(1).font={bold:true};
+    if(/monto|riesgo/i.test(String(row[0])) && typeof row[1]==='number') nuevaFila.getCell(2).numFmt='"$" #,##0.00';
+  });
+
+  // ── HOJAS DE DATOS ─────────────────────────────────────────
+  function _hojaDatos(nombre, filas, headerColor){
+    if(!filas.length) return;
+    const wsD=wb.addWorksheet(nombre, {views:[{state:'frozen',ySplit:1}]});
+    wsD.columns=[
+      {header:'Fecha',key:'fecha',width:12},{header:'Comprobante',key:'comprobante',width:18},
+      {header:'Proveedor',key:'proveedor',width:26},{header:'Unidad de negocio',key:'unidadNegocio',width:22},
+      {header:'Usuario',key:'usuario',width:18},{header:'Importe',key:'importe',width:16},
+    ];
+    wsD.getRow(1).eachCell(cell=>{ cell.font={bold:true,color:{argb:'FFFFFFFF'}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+headerColor}}; cell.alignment={vertical:'middle'}; });
+    filas.forEach(row=>wsD.addRow({fecha:row.fecha?fmtFecha(row.fecha):'', comprobante:row.comprobante||'', proveedor:row.proveedor||'', unidadNegocio:row.unidadNegocio||'', usuario:row.usuario||'', importe:row.importe||0}));
+    wsD.getColumn('importe').numFmt='"$" #,##0.00';
+    wsD.autoFilter={from:'A1',to:'F1'};
+  }
+  _hojaDatos('Conciliados', c.conciliados.map(p=>p.a), BRAND.green);
+  _hojaDatos('Pendientes A', c.pendientesA, BRAND.accent);
+  _hojaDatos('Pendientes B', c.pendientesB, BRAND.purple);
+
+  const dupGrupos=[...c.duplicadosA,...c.duplicadosB];
+  if(dupGrupos.length){
+    const wsDup=wb.addWorksheet('Duplicados', {views:[{state:'frozen',ySplit:1}]});
+    wsDup.columns=[
+      {header:'Grupo',key:'grupo',width:10},{header:'Estado',key:'estado',width:14},{header:'Fecha',key:'fecha',width:12},
+      {header:'Comprobante',key:'comprobante',width:18},{header:'Proveedor',key:'proveedor',width:26},
+      {header:'Unidad de negocio',key:'unidadNegocio',width:22},{header:'Usuario',key:'usuario',width:18},{header:'Importe',key:'importe',width:16},
+    ];
+    wsDup.getRow(1).eachCell(cell=>{ cell.font={bold:true,color:{argb:'FFFFFFFF'}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+BRAND.red}}; });
+    dupGrupos.forEach((g,gi)=>{
+      const importes=g.map(x=>x.importe||0);
+      const max=Math.max(...importes);
+      const keepIdx=importes.indexOf(max);
+      g.forEach((row,i)=>{
+        const nuevaFila=wsDup.addRow({grupo:'Grupo '+(gi+1), estado:i===keepIdx?'✓ Mantener':'⚠ Riesgo', fecha:row.fecha?fmtFecha(row.fecha):'', comprobante:row.comprobante||'', proveedor:row.proveedor||'', unidadNegocio:row.unidadNegocio||'', usuario:row.usuario||'', importe:row.importe||0});
+        const fill=i===keepIdx?'FFDCFCE7':'FFFEE2E2';
+        nuevaFila.eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:fill}}; });
+        nuevaFila.getCell('estado').font={bold:true,color:{argb:i===keepIdx?'FF15803D':'FFB91C1C'}};
+      });
+    });
+    wsDup.getColumn('importe').numFmt='"$" #,##0.00';
+    wsDup.autoFilter={from:'A1',to:'H1'};
+  }
+
+  const buf=await wb.xlsx.writeBuffer();
+  _descargarBlob(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), 'conciliacion_'+new Date().toISOString().slice(0,10)+'.xlsx');
   toast('Excel exportado');
 }
+
 function exportarPDF(){
   const c=_conciliacionActual; if(!c) return;
-  const r=c.resumen;
+  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
   const win=window.open('','_blank');
-  const rowsHtml=(rows,cols)=>rows.map(row=>'<tr>'+cols.map(k=>'<td>'+(k==='importe'?fmtMoneda(row[k]):(k==='fecha'?fmtFecha(row[k]):(row[k]||'—')))+'</td>').join('')+'</tr>').join('');
-  win.document.write('<html><head><title>Informe Gerencial — Conciliación</title><style>'+
-    'body{font-family:Arial,sans-serif;padding:24px;color:#111;} h1{font-size:20px;} h2{font-size:14px;margin-top:24px;border-bottom:1px solid #ccc;padding-bottom:4px;}'+
-    'table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;} td,th{border:1px solid #ccc;padding:5px 7px;text-align:left;}'+
-    '.kpis{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;} .kpi{border:1px solid #ccc;border-radius:8px;padding:10px 14px;min-width:140px;}'+
-    '.kpi .l{font-size:10px;color:#666;text-transform:uppercase;} .kpi .v{font-size:16px;font-weight:bold;margin-top:4px;}'+
-    '</style></head><body>');
-  win.document.write('<h1>Frigurso Conciliaciones — Informe Gerencial</h1>');
-  win.document.write('<div>'+fmtFechaHora(c.fecha)+' · '+c.fuenteANombre+(c.esSelfCheck?' (revisión interna)':' vs '+c.fuenteBNombre)+'</div>');
-  win.document.write('<div class="kpis">'+
-    '<div class="kpi"><div class="l">Registros</div><div class="v">'+(r.totalA+r.totalB)+'</div></div>'+
-    '<div class="kpi"><div class="l">Conciliados</div><div class="v">'+r.countConciliados+' ('+fmtMoneda(r.montoConciliado)+')</div></div>'+
-    '<div class="kpi"><div class="l">Pendiente</div><div class="v">'+fmtMoneda(r.montoPendientesA+r.montoPendientesB)+'</div></div>'+
-    '<div class="kpi"><div class="l">Riesgo duplicados</div><div class="v">'+fmtMoneda(r.montoRiesgoDupA+r.montoRiesgoDupB)+'</div></div>'+
-  '</div>');
+  if(!win){ toast('El navegador bloqueó la ventana. Habilitá pop-ups para exportar el PDF.'); return; }
+
+  const segComposicion=segComposicionDe(c, r, montoRiesgoTotal);
+  const donutImg=chartDonaPNG(segComposicion, {title:'Composición del monto analizado', ancho:470, alto:250});
+  const barUnidadImg=chartBarrasPNG(rankUnidadArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por unidad de negocio', color:'#'+BRAND.accent, money:true, ancho:470, alto:Math.max(180,42*Math.min(rankUnidadArr.length,8)+56)});
+  const barUsuarioImg=chartBarrasPNG(rankUsuarioArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por usuario', color:'#'+BRAND.purple, money:true, ancho:470, alto:Math.max(180,42*Math.min(rankUsuarioArr.length,8)+56)});
+  const lineImg=historialMismoPar.length>1 ? chartLineaPNG(
+    historialMismoPar.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})),
+    historialMismoPar.map(x=>x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB),
+    {title:'Evolución del riesgo en el tiempo', color:'#'+BRAND.gold, ancho:960, alto:220}
+  ) : null;
+
+  const rowsHtml=(rows,cols)=>rows.map((row,i)=>'<tr class="'+(i%2?'odd':'')+'">'+cols.map(k=>'<td>'+(k==='importe'?fmtMoneda(row[k]):(k==='fecha'?fmtFecha(row[k]):(row[k]||'—')))+'</td>').join('')+'</tr>').join('');
   const cols=['fecha','comprobante','proveedor','unidadNegocio','usuario','importe'];
   const colsLbl=['Fecha','Comprobante','Proveedor','Unidad','Usuario','Importe'];
+
+  let html='<!doctype html><html><head><meta charset="utf-8"><title>Informe Gerencial — Frigurso Conciliaciones</title><style>'+
+    '*{box-sizing:border-box;} body{font-family:Arial,Helvetica,sans-serif;color:#0F172A;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'+
+    '.hdr{background:linear-gradient(135deg,#0F1729,#0B1220);color:#fff;padding:28px 34px;}'+
+    '.hdr .tag{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#2DD4BF;font-weight:700;margin-bottom:6px;}'+
+    '.hdr h1{margin:0;font-size:24px;} .hdr .meta{margin-top:8px;font-size:12.5px;color:#9FB0CC;}'+
+    '.wrap{padding:24px 34px 40px;}'+
+    '.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}'+
+    '.kpi{border:1px solid #E2E8F0;border-left:5px solid var(--c);border-radius:8px;padding:12px 14px;background:#F8FAFC;}'+
+    '.kpi .l{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748B;font-weight:700;} .kpi .v{font-size:19px;font-weight:800;margin-top:5px;color:var(--c);} .kpi .s{font-size:10.5px;color:#94A3B8;margin-top:3px;}'+
+    'h2{font-size:14px;margin:26px 0 10px;padding-bottom:6px;border-bottom:2px solid #E2E8F0;color:#0F1729;}'+
+    '.charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px;} .charts img{width:100%;border:1px solid #E2E8F0;border-radius:8px;display:block;}'+
+    '.charts.full{grid-template-columns:1fr;}'+
+    'table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:6px;} td,th{border:1px solid #E2E8F0;padding:5px 7px;text-align:left;}'+
+    'th{background:#0F1729;color:#fff;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;} tr.odd{background:#F8FAFC;}'+
+    '.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;}'+
+    '.badge.risk{background:#FEE2E2;color:#B91C1C;} .badge.keep{background:#DCFCE7;color:#15803D;}'+
+    '.footer{margin-top:30px;padding-top:10px;border-top:1px solid #E2E8F0;font-size:9.5px;color:#94A3B8;text-align:center;}'+
+    '@media print{ .wrap{padding:16px 24px;} h2{page-break-after:avoid;} tr{page-break-inside:avoid;} }'+
+    '</style></head><body>';
+
+  html+='<div class="hdr"><div class="tag">Frigurso Conciliaciones</div><h1>Informe Gerencial</h1>'+
+    '<div class="meta">'+fmtFechaHora(c.fecha)+' · '+c.fuenteANombre+(c.esSelfCheck?' (revisión interna de duplicados)':' vs '+c.fuenteBNombre)+'</div></div>';
+
+  html+='<div class="wrap">';
+  html+='<div class="kpis">'+
+    '<div class="kpi" style="--c:#3B82F6"><div class="l">Registros analizados</div><div class="v">'+totalRegistros+'</div><div class="s">'+(c.esSelfCheck?c.fuenteANombre:c.fuenteANombre+' + '+c.fuenteBNombre)+'</div></div>'+
+    '<div class="kpi" style="--c:#22C55E"><div class="l">% Conciliado</div><div class="v">'+(c.esSelfCheck?'—':pctConciliado+'%')+'</div><div class="s">'+r.countConciliados+' pares cruzados</div></div>'+
+    '<div class="kpi" style="--c:#EF4444"><div class="l">Monto pendiente</div><div class="v">'+fmtMoneda(r.montoPendientesA+r.montoPendientesB)+'</div><div class="s">'+(r.countPendientesA+r.countPendientesB)+' registros sin cruzar</div></div>'+
+    '<div class="kpi" style="--c:#F5B53F"><div class="l">Riesgo por duplicados</div><div class="v">'+fmtMoneda(montoRiesgoTotal)+'</div><div class="s">'+gruposDupTotal+' grupos detectados</div></div>'+
+  '</div>';
+
+  html+='<h2>Panorama general</h2><div class="charts"><img src="'+donutImg+'"><img src="'+barUnidadImg+'"></div>';
+  html+= lineImg
+    ? '<div class="charts"><img src="'+barUsuarioImg+'"><img src="'+lineImg+'"></div>'
+    : '<div class="charts full"><img src="'+barUsuarioImg+'"></div>';
+
   if(c.duplicadosA.length||c.duplicadosB.length){
-    win.document.write('<h2>Duplicados detectados</h2><table><tr>'+colsLbl.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+
-      rowsHtml([...c.duplicadosA,...c.duplicadosB].flat(), cols)+'</table>');
+    const grupos=[...c.duplicadosA,...c.duplicadosB];
+    let rowsD='';
+    grupos.forEach((g,gi)=>{
+      const importes=g.map(x=>x.importe||0); const max=Math.max(...importes); const keepIdx=importes.indexOf(max);
+      g.forEach((row,i)=>{
+        rowsD+='<tr class="'+(gi%2?'odd':'')+'"><td>#'+(gi+1)+'</td><td>'+(i===keepIdx?'<span class="badge keep">✓ Mantener</span>':'<span class="badge risk">⚠ Riesgo</span>')+'</td><td>'+(row.comprobante||'—')+'</td><td>'+(row.proveedor||'—')+'</td><td>'+(row.unidadNegocio||'—')+'</td><td>'+(row.usuario||'—')+'</td><td>'+fmtFecha(row.fecha)+'</td><td>'+fmtMoneda(row.importe)+'</td></tr>';
+      });
+    });
+    html+='<h2>Duplicados detectados ('+grupos.length+' grupos)</h2><table><tr><th>Grupo</th><th>Estado</th><th>Comprobante</th><th>Proveedor</th><th>Unidad</th><th>Usuario</th><th>Fecha</th><th>Importe</th></tr>'+rowsD+'</table>';
   }
-  if(c.pendientesA.length) win.document.write('<h2>Pendientes en '+c.fuenteANombre+'</h2><table><tr>'+colsLbl.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+rowsHtml(c.pendientesA,cols)+'</table>');
-  if(c.pendientesB.length) win.document.write('<h2>Pendientes en '+c.fuenteBNombre+'</h2><table><tr>'+colsLbl.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+rowsHtml(c.pendientesB,cols)+'</table>');
-  win.document.write('</body></html>');
-  win.document.close();
-  setTimeout(()=>win.print(), 400);
+  if(rankUnidadArr.length) html+='<h2>Ranking por unidad de negocio</h2><table><tr><th>Unidad</th><th>Registros en riesgo</th><th>Monto en riesgo</th></tr>'+rankUnidadArr.map(([n,v],i)=>'<tr class="'+(i%2?'odd':'')+'"><td>'+n+'</td><td>'+v.cant+'</td><td>'+fmtMoneda(v.monto)+'</td></tr>').join('')+'</table>';
+  if(rankUsuarioArr.length) html+='<h2>Ranking por usuario</h2><table><tr><th>Usuario</th><th>Registros en riesgo</th><th>Monto en riesgo</th></tr>'+rankUsuarioArr.map(([n,v],i)=>'<tr class="'+(i%2?'odd':'')+'"><td>'+n+'</td><td>'+v.cant+'</td><td>'+fmtMoneda(v.monto)+'</td></tr>').join('')+'</table>';
+  if(c.pendientesA.length) html+='<h2>Pendientes en '+c.fuenteANombre+'</h2><table><tr>'+colsLbl.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+rowsHtml(c.pendientesA,cols)+'</table>';
+  if(c.pendientesB.length) html+='<h2>Pendientes en '+c.fuenteBNombre+'</h2><table><tr>'+colsLbl.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+rowsHtml(c.pendientesB,cols)+'</table>';
+
+  html+='<div class="footer">Generado por Frigurso Conciliaciones · '+fmtFechaHora(new Date().toISOString())+'</div>';
+  html+='</div></body></html>';
+
+  win.document.open(); win.document.write(html); win.document.close();
+  setTimeout(()=>win.print(), 500);
 }
+
 async function exportarPPT(){
   const c=_conciliacionActual; if(!c) return;
   if(typeof PptxGenJS==='undefined'){ toast('No se pudo cargar la librería de PowerPoint (revisá tu conexión)'); return; }
-  const r=c.resumen;
+  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
+
   const pptx=new PptxGenJS();
   pptx.defineLayout({name:'FG',width:10,height:5.63});
   pptx.layout='FG';
+  const BG='0B1220', CARD='111A2E', BORDER='283A5F', TXT='E8EDF7', TXT2='9FB0CC';
 
-  let s=pptx.addSlide();
-  s.background={color:'0B1220'};
-  s.addText('Frigurso Conciliaciones', {x:0.5,y:1.8,w:9,h:0.8,fontSize:32,bold:true,color:'FFFFFF'});
-  s.addText('Informe Gerencial · '+fmtFechaHora(c.fecha), {x:0.5,y:2.5,w:9,h:0.5,fontSize:14,color:'9FB0CC'});
-  s.addText(c.fuenteANombre+(c.esSelfCheck?' (revisión interna)':' vs '+c.fuenteBNombre), {x:0.5,y:3.0,w:9,h:0.5,fontSize:13,color:'2DD4BF'});
+  function slideBase(){ const sl=pptx.addSlide(); sl.background={color:BG}; return sl; }
+  function titulo(sl, txt){ sl.addText(txt, {x:0.5,y:0.3,w:9,h:0.55,fontSize:21,bold:true,color:'FFFFFF'}); }
 
-  s=pptx.addSlide(); s.background={color:'0B1220'};
-  s.addText('KPIs principales', {x:0.5,y:0.3,w:9,h:0.5,fontSize:22,bold:true,color:'FFFFFF'});
+  // 1) Portada
+  let s=slideBase();
+  s.addShape('rect',{x:0,y:2.55,w:10,h:0.03,fill:{color:BRAND.teal}});
+  s.addText('FRIGURSO CONCILIACIONES', {x:0.5,y:1.65,w:9,h:0.4,fontSize:13,bold:true,color:BRAND.teal,charSpacing:2});
+  s.addText('Informe Gerencial', {x:0.5,y:2.0,w:9,h:0.7,fontSize:32,bold:true,color:'FFFFFF'});
+  s.addText(fmtFechaHora(c.fecha), {x:0.5,y:2.75,w:9,h:0.4,fontSize:13,color:TXT2});
+  s.addText(c.fuenteANombre+(c.esSelfCheck?'  ·  Revisión interna de duplicados':'  vs  '+c.fuenteBNombre), {x:0.5,y:3.1,w:9,h:0.4,fontSize:13,color:TXT});
+
+  // 2) KPIs
+  s=slideBase(); titulo(s,'KPIs principales');
   const kpis=[
-    ['Registros analizados', String(r.totalA+r.totalB)],
-    ['Conciliados', r.countConciliados+' ('+fmtMoneda(r.montoConciliado)+')'],
-    ['Monto pendiente', fmtMoneda(r.montoPendientesA+r.montoPendientesB)],
-    ['Riesgo por duplicados', fmtMoneda(r.montoRiesgoDupA+r.montoRiesgoDupB)],
+    ['Registros analizados', String(totalRegistros), BRAND.accent],
+    ['% Conciliado', (c.esSelfCheck?'—':pctConciliado+'%'), BRAND.green],
+    ['Monto pendiente', fmtMoneda(r.montoPendientesA+r.montoPendientesB), BRAND.red],
+    ['Riesgo por duplicados', fmtMoneda(montoRiesgoTotal), BRAND.gold],
   ];
   kpis.forEach((k,i)=>{
-    const x=0.5+(i%2)*4.7, y=1.1+Math.floor(i/2)*1.6;
-    s.addShape('roundRect',{x,y,w:4.3,h:1.3,fill:{color:'111A2E'},line:{color:'283A5F'}});
-    s.addText(k[0],{x:x+0.2,y:y+0.15,w:3.9,h:0.4,fontSize:11,color:'9FB0CC'});
-    s.addText(k[1],{x:x+0.2,y:y+0.5,w:3.9,h:0.6,fontSize:20,bold:true,color:'2DD4BF'});
+    const x=0.5+(i%2)*4.7, y=1.05+Math.floor(i/2)*1.85;
+    s.addShape('roundRect',{x,y,w:4.3,h:1.55,fill:{color:CARD},line:{color:BORDER,width:1},rectRadius:0.08});
+    s.addShape('rect',{x,y,w:0.06,h:1.55,fill:{color:k[2]}});
+    s.addText(k[0],{x:x+0.25,y:y+0.18,w:3.8,h:0.4,fontSize:11,color:TXT2});
+    s.addText(k[1],{x:x+0.25,y:y+0.6,w:3.8,h:0.75,fontSize:24,bold:true,color:k[2]});
   });
 
-  const grupos=[...c.duplicadosA,...c.duplicadosB];
-  if(grupos.length){
-    s=pptx.addSlide(); s.background={color:'0B1220'};
-    s.addText('Duplicados detectados (top 12)', {x:0.5,y:0.3,w:9,h:0.5,fontSize:20,bold:true,color:'FFFFFF'});
-    const rows=[['Comprobante','Proveedor','Unidad','Usuario','Importe']];
-    grupos.slice(0,12).forEach(g=>g.forEach(row=>rows.push([row.comprobante||'—',row.proveedor||'—',row.unidadNegocio||'—',row.usuario||'—',fmtMoneda(row.importe)])));
-    s.addTable(rows, {x:0.4,y:1.0,w:9.2,fontSize:9,color:'E8EDF7',fill:{color:'111A2E'},border:{type:'solid',color:'283A5F',pt:1}});
+  // 3) Composición
+  const segComposicion=segComposicionDe(c, r, montoRiesgoTotal).filter(x=>x.value>0);
+  if(segComposicion.length){
+    s=slideBase(); titulo(s,'Composición del monto analizado');
+    s.addChart(pptx.ChartType.doughnut, [{name:'Composición', labels:segComposicion.map(x=>x.label), values:segComposicion.map(x=>Math.round(x.value*100)/100)}], {
+      x:0.6,y:0.95,w:8.8,h:4.4,
+      chartColors:segComposicion.map(x=>x.color.replace('#','')),
+      showLegend:true, legendPos:'r', legendColor:TXT,
+      showPercent:true, dataLabelColor:'FFFFFF', dataLabelFontSize:11,
+      holeSize:55,
+    });
   }
 
-  pptx.writeFile({fileName:'conciliacion_'+new Date().toISOString().slice(0,10)+'.pptx'});
+  // 4) Ranking por unidad de negocio
+  if(rankUnidadArr.length){
+    s=slideBase(); titulo(s,'Riesgo por unidad de negocio');
+    const top=rankUnidadArr.slice(0,8);
+    s.addChart(pptx.ChartType.bar, [{name:'Monto en riesgo', labels:top.map(x=>x[0]), values:top.map(x=>Math.round(x[1].monto*100)/100)}], {
+      x:0.5,y:0.95,w:9,h:4.4, barDir:'bar',
+      chartColors:[BRAND.accent], showValue:true, dataLabelColor:TXT, dataLabelFontSize:9,
+      catAxisLabelColor:TXT2, valAxisLabelColor:TXT2, catAxisLabelFontSize:10, valAxisLabelFontSize:9,
+      showLegend:false,
+    });
+  }
+
+  // 5) Ranking por usuario
+  if(rankUsuarioArr.length){
+    s=slideBase(); titulo(s,'Riesgo por usuario');
+    const top=rankUsuarioArr.slice(0,8);
+    s.addChart(pptx.ChartType.bar, [{name:'Monto en riesgo', labels:top.map(x=>x[0]), values:top.map(x=>Math.round(x[1].monto*100)/100)}], {
+      x:0.5,y:0.95,w:9,h:4.4, barDir:'bar',
+      chartColors:[BRAND.purple], showValue:true, dataLabelColor:TXT, dataLabelFontSize:9,
+      catAxisLabelColor:TXT2, valAxisLabelColor:TXT2, catAxisLabelFontSize:10, valAxisLabelFontSize:9,
+      showLegend:false,
+    });
+  }
+
+  // 6) Evolución
+  if(historialMismoPar.length>1){
+    s=slideBase(); titulo(s,'Evolución del riesgo en el tiempo');
+    s.addChart(pptx.ChartType.line, [{name:'Riesgo', labels:historialMismoPar.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})), values:historialMismoPar.map(x=>Math.round((x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB)*100)/100)}], {
+      x:0.5,y:0.95,w:9,h:4.4,
+      chartColors:[BRAND.gold], lineSize:2.5, lineDataSymbol:'circle', lineDataSymbolSize:6,
+      showValue:true, dataLabelColor:TXT, dataLabelFontSize:9,
+      catAxisLabelColor:TXT2, valAxisLabelColor:TXT2,
+      showLegend:false,
+    });
+  }
+
+  // 7) Duplicados
+  const grupos=[...c.duplicadosA,...c.duplicadosB];
+  if(grupos.length){
+    s=slideBase(); titulo(s,'Duplicados detectados (top 12 filas)');
+    const rows=[[
+      {text:'Grupo',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
+      {text:'Comprobante',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
+      {text:'Proveedor',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
+      {text:'Unidad',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
+      {text:'Usuario',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
+      {text:'Importe',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
+    ]];
+    let n=0;
+    grupos.forEach((g,gi)=>{
+      const importes=g.map(x=>x.importe||0); const max=Math.max(...importes); const keepIdx=importes.indexOf(max);
+      g.forEach((row,i)=>{
+        if(n>=12) return; n++;
+        const risk=i!==keepIdx;
+        rows.push([
+          {text:'#'+(gi+1), options:{color:TXT2}},
+          {text:row.comprobante||'—', options:{color:TXT}},
+          {text:row.proveedor||'—', options:{color:TXT}},
+          {text:row.unidadNegocio||'—', options:{color:TXT}},
+          {text:row.usuario||'—', options:{color:TXT}},
+          {text:fmtMoneda(row.importe), options:{color:risk?BRAND.red:BRAND.green, bold:risk}},
+        ]);
+      });
+    });
+    s.addTable(rows, {x:0.4,y:1.0,w:9.2,fontSize:9,fill:{color:CARD},border:{type:'solid',color:BORDER,pt:1},autoPage:false});
+  }
+
+  // 8) Cierre
+  s=slideBase();
+  s.addShape('rect',{x:0,y:2.6,w:10,h:0.03,fill:{color:BRAND.teal}});
+  s.addText('Frigurso Conciliaciones', {x:0.5,y:2.0,w:9,h:0.6,fontSize:24,bold:true,color:'FFFFFF'});
+  s.addText('Informe generado automáticamente · '+fmtFechaHora(new Date().toISOString()), {x:0.5,y:2.7,w:9,h:0.4,fontSize:12,color:TXT2});
+
+  await pptx.writeFile({fileName:'conciliacion_'+new Date().toISOString().slice(0,10)+'.pptx'});
   toast('PowerPoint exportado');
 }
 
