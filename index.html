@@ -299,10 +299,13 @@ input,select,textarea{font-family:inherit;}
       <div class="field help" id="conc-modo-hint" style="margin-top:-6px;margin-bottom:16px;"></div>
 
       <div class="section-title" style="margin-top:6px;">Criterios de cruce</div>
-      <label class="chk-row"><input type="checkbox" id="crit-comprobante" checked><span><div class="l">Número de comprobante</div><div class="d">Factura, cheque, transferencia, etc.</div></span></label>
-      <label class="chk-row"><input type="checkbox" id="crit-importe" checked><span><div class="l">Importe</div><div class="d">Con tolerancia configurable por redondeos</div></span></label>
-      <label class="chk-row"><input type="checkbox" id="crit-usuario" checked><span><div class="l">Usuario</div><div class="d">Quién cargó el registro</div></span></label>
-      <label class="chk-row"><input type="checkbox" id="crit-unidad" checked><span><div class="l">Unidad de negocio</div><div class="d">Estación / sucursal / empresa</div></span></label>
+      <label class="chk-row"><input type="checkbox" id="crit-comprobante" checked onchange="actualizarAvisoCriterios()"><span><div class="l">Número de comprobante</div><div class="d">Factura, cheque, transferencia, etc.</div></span></label>
+      <label class="chk-row"><input type="checkbox" id="crit-importe" checked onchange="actualizarAvisoCriterios()"><span><div class="l">Importe</div><div class="d">Con tolerancia configurable por redondeos</div></span></label>
+      <label class="chk-row"><input type="checkbox" id="crit-usuario" checked onchange="actualizarAvisoCriterios()"><span><div class="l">Usuario</div><div class="d">Quién cargó el registro</div></span></label>
+      <label class="chk-row"><input type="checkbox" id="crit-unidad" checked onchange="actualizarAvisoCriterios()"><span><div class="l">Unidad de negocio</div><div class="d">Estación / sucursal / empresa</div></span></label>
+      <label class="chk-row"><input type="checkbox" id="crit-proveedor" onchange="actualizarAvisoCriterios()"><span><div class="l">Proveedor / Razón social</div><div class="d">Útil cuando hay muchos importes redondos repetidos (ej. 100.000) y el importe solo no alcanza para distinguir. Tolera diferencias de formato (S.A., SRL, puntos, comas).</div></span></label>
+      <label class="chk-row"><input type="checkbox" id="crit-fecha" onchange="actualizarAvisoCriterios()"><span><div class="l">Fecha</div><div class="d">Mismo día calendario en ambas fuentes.</div></span></label>
+      <div class="field help" id="conc-criterios-warn" style="color:var(--gold);"></div>
 
       <div class="field" style="margin-top:14px;">
         <label>Tolerancia de importe ($)</label>
@@ -453,6 +456,13 @@ function goPage(name){
 // ═══════════════════════════════════════════════════════════════
 function normTxt(s){
   return String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toUpperCase().replace(/\s+/g,' ');
+}
+// Tolera diferencias de formato en razón social entre fuentes (puntuación y forma jurídica)
+function normProveedor(s){
+  return normTxt(s)
+    .replace(/[.,]/g,'')
+    .replace(/\b(SA|SRL|SAS|SACI|SACIF|SAICA|SCA|SH|COOP|LTDA|LTD|INC|CIA)\b/g,'')
+    .replace(/\s+/g,' ').trim();
 }
 function normComprobante(s){
   if(s==null) return '';
@@ -777,19 +787,49 @@ function actualizarResumenConciliar(){
   const bId=document.getElementById('conc-fuenteB').value;
   const hint=document.getElementById('conc-modo-hint');
   const btn=document.getElementById('btn-conciliar');
-  if(!aId||!bId){ hint.textContent=''; btn.disabled=true; return; }
+  if(!aId||!bId){ hint.textContent=''; btn.disabled=true; document.getElementById('conc-criterios-warn').innerHTML=''; return; }
   btn.disabled=false;
   if(aId===bId){
     hint.innerHTML='🔁 Vas a revisar <b>duplicados dentro de la misma fuente</b> (útil para un excel consolidado con todas las unidades de negocio).';
   } else {
     hint.innerHTML='⚖️ Vas a <b>cruzar dos fuentes distintas</b>: además del cruce, también se revisan duplicados internos de cada una.';
   }
+  actualizarAvisoCriterios();
+}
+const CAMPOS_POR_CRITERIO={
+  comprobante:['comprobante'], importe:['importe','debe','haber'], usuario:['usuario'],
+  unidadNegocio:['unidadNegocio'], proveedor:['proveedor'], fecha:['fecha'],
+};
+const LABEL_CRITERIO={comprobante:'Número de comprobante', importe:'Importe', usuario:'Usuario', unidadNegocio:'Unidad de negocio', proveedor:'Proveedor / Razón social', fecha:'Fecha'};
+function actualizarAvisoCriterios(){
+  const warn=document.getElementById('conc-criterios-warn');
+  if(!warn) return;
+  const aId=document.getElementById('conc-fuenteA').value;
+  const bId=document.getElementById('conc-fuenteB').value;
+  if(!aId||!bId){ warn.innerHTML=''; return; }
+  const fuenteA=FUENTES.find(f=>f.id===aId);
+  const fuenteB=FUENTES.find(f=>f.id===bId);
+  const fuentesActivas=aId===bId ? [fuenteA] : [fuenteA,fuenteB];
+  const criteriosActivos=['comprobante','importe','usuario','unidadNegocio','proveedor','fecha']
+    .filter(k=>document.getElementById('crit-'+(k==='unidadNegocio'?'unidad':k)).checked);
+  const avisos=[];
+  criteriosActivos.forEach(crit=>{
+    const campos=CAMPOS_POR_CRITERIO[crit];
+    fuentesActivas.forEach(f=>{
+      if(f && !campos.some(c=>f.mapeo[c])){
+        avisos.push('<b>'+f.nombre+'</b> no tiene "'+LABEL_CRITERIO[crit]+'" mapeado — con ese criterio activo, nada de esa fuente va a poder conciliar.');
+      }
+    });
+  });
+  warn.innerHTML = avisos.length ? '⚠️ '+[...new Set(avisos)].join('<br>⚠️ ') : '';
 }
 function claveNoImporte(row, criterios){
   const partes=[];
   if(criterios.comprobante) partes.push('C:'+normComprobante(row.comprobante));
   if(criterios.usuario) partes.push('U:'+normTxt(row.usuario));
   if(criterios.unidadNegocio) partes.push('N:'+normTxt(row.unidadNegocio));
+  if(criterios.proveedor) partes.push('P:'+normProveedor(row.proveedor));
+  if(criterios.fecha) partes.push('F:'+(row.fecha instanceof Date && !isNaN(row.fecha) ? row.fecha.toISOString().slice(0,10) : ''));
   return partes.join('|');
 }
 // Agrupa por cercanía de importe encadenando vecinos ordenados — evita el efecto
@@ -878,6 +918,8 @@ async function ejecutarConciliacion(){
     importe: document.getElementById('crit-importe').checked,
     usuario: document.getElementById('crit-usuario').checked,
     unidadNegocio: document.getElementById('crit-unidad').checked,
+    proveedor: document.getElementById('crit-proveedor').checked,
+    fecha: document.getElementById('crit-fecha').checked,
   };
   if(!Object.values(criterios).some(Boolean)){ toast('Elegí al menos un criterio de cruce'); return; }
   const tolerancia=parseFloat(document.getElementById('conc-tolerancia').value)||0;
@@ -964,16 +1006,16 @@ function renderResTabBody(c){
   if(!body) return;
   if(_resTabActiva==='conciliados'){
     if(c.conciliados.length===0){ body.innerHTML='<div class="empty"><div class="ei">🔍</div><p>No hubo coincidencias con estos criterios.</p></div>'; return; }
-    body.innerHTML='<div class="imp-scroll" style="max-height:420px;"><table class="imp-table"><thead><tr><th>Comprobante</th><th>Importe</th><th>Unidad</th><th>Usuario</th><th>Fecha</th></tr></thead><tbody>'+
-      c.conciliados.map(p=>'<tr><td>'+(p.a.comprobante||'—')+'</td><td>'+fmtMoneda(p.a.importe)+'</td><td>'+(p.a.unidadNegocio||'—')+'</td><td>'+(p.a.usuario||'—')+'</td><td>'+fmtFecha(p.a.fecha)+'</td></tr>').join('')+
+    body.innerHTML='<div class="imp-scroll" style="max-height:420px;"><table class="imp-table"><thead><tr><th>Comprobante</th><th>Proveedor</th><th>Importe</th><th>Unidad</th><th>Usuario</th><th>Fecha</th></tr></thead><tbody>'+
+      c.conciliados.map(p=>'<tr><td>'+(p.a.comprobante||'—')+'</td><td>'+(p.a.proveedor||'—')+'</td><td>'+fmtMoneda(p.a.importe)+'</td><td>'+(p.a.unidadNegocio||'—')+'</td><td>'+(p.a.usuario||'—')+'</td><td>'+fmtFecha(p.a.fecha)+'</td></tr>').join('')+
       '</tbody></table></div>';
     return;
   }
   if(_resTabActiva==='pendientesA'||_resTabActiva==='pendientesB'){
     const filas=_resTabActiva==='pendientesA'?c.pendientesA:c.pendientesB;
     if(filas.length===0){ body.innerHTML='<div class="empty"><div class="ei">✅</div><p>No quedaron registros sin conciliar de este lado.</p></div>'; return; }
-    body.innerHTML='<div class="imp-scroll" style="max-height:420px;"><table class="imp-table"><thead><tr><th>Comprobante</th><th>Importe</th><th>Unidad</th><th>Usuario</th><th>Fecha</th></tr></thead><tbody>'+
-      filas.map(r=>'<tr><td>'+(r.comprobante||'—')+'</td><td>'+fmtMoneda(r.importe)+'</td><td>'+(r.unidadNegocio||'—')+'</td><td>'+(r.usuario||'—')+'</td><td>'+fmtFecha(r.fecha)+'</td></tr>').join('')+
+    body.innerHTML='<div class="imp-scroll" style="max-height:420px;"><table class="imp-table"><thead><tr><th>Comprobante</th><th>Proveedor</th><th>Importe</th><th>Unidad</th><th>Usuario</th><th>Fecha</th></tr></thead><tbody>'+
+      filas.map(r=>'<tr><td>'+(r.comprobante||'—')+'</td><td>'+(r.proveedor||'—')+'</td><td>'+fmtMoneda(r.importe)+'</td><td>'+(r.unidadNegocio||'—')+'</td><td>'+(r.usuario||'—')+'</td><td>'+fmtFecha(r.fecha)+'</td></tr>').join('')+
       '</tbody></table></div>';
     return;
   }
