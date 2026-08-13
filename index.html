@@ -405,9 +405,11 @@ let FUENTES=[];
 let CONCILIACIONES=[];
 let _importPendiente=null; // {file, workbook, sheetName, headerIdx, headers, rawRows}
 let _conciliacionActual=null; // último resultado mostrado en Resultados/Informe
+let _avisoVersionActivo=false; // no dejar que un toast cualquiera tape el aviso de nueva versión
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function toast(msg){
+  if(_avisoVersionActivo) return;
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('show');
   clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2600);
@@ -1852,10 +1854,18 @@ if(localStorage.getItem('fcon_pass_hash')){
 }
 let _swRegistration=null;
 function avisarNuevaVersion(){
+  _avisoVersionActivo=true;
   const el=document.getElementById('toast');
   clearTimeout(el._h);
   el.innerHTML='🔄 Hay una versión nueva — <u>tocá para actualizar</u>';
-  el.onclick=()=>{ if(_swRegistration&&_swRegistration.waiting) _swRegistration.waiting.postMessage({type:'SKIP_WAITING'}); };
+  el.onclick=()=>{
+    el.onclick=null;
+    el.innerHTML='🔄 Actualizando…';
+    if(_swRegistration&&_swRegistration.waiting) _swRegistration.waiting.postMessage({type:'SKIP_WAITING'});
+    // en algunos navegadores (Safari/iOS en modo PWA) "controllerchange" no siempre
+    // dispara después de skipWaiting — forzamos el reload igual pasado un momento.
+    setTimeout(()=>location.reload(), 1800);
+  };
   el.style.pointerEvents='all';
   el.classList.add('show');
 }

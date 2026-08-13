@@ -1,4 +1,4 @@
-const CACHE = 'conciliaciones-v5';
+const CACHE = 'conciliaciones-v6';
 const PRECACHE = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
