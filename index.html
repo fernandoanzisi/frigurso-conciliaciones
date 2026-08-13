@@ -282,21 +282,9 @@ input,select,textarea{font-family:inherit;}
   <!-- ═══════════════ PÁGINA: CONCILIAR ═══════════════ -->
   <div class="page" id="page-conciliar">
     <div class="card">
-      <div class="field-row">
-        <div class="field">
-          <label>Fuente A</label>
-          <select id="conc-fuenteA" onchange="onFuenteAChange()"></select>
-        </div>
-        <div class="field" id="conc-fuenteB-wrap">
-          <label>Fuente B</label>
-          <select id="conc-fuenteB" onchange="actualizarResumenConciliar()"></select>
-        </div>
-      </div>
-      <label class="chk-row" id="conc-mismaplanilla-row" style="display:none;">
-        <input type="checkbox" id="conc-mismaplanilla" onchange="onMismaPlanillaChange()">
-        <span><div class="l">🔁 Es la misma planilla (un solo excel con todo)</div><div class="d">Busca duplicados internos en vez de cruzar contra otra fuente — más rápido cuando ya armaste un excel consolidado.</div></span>
-      </label>
-      <div class="field help" id="conc-modo-hint" style="margin-top:-6px;margin-bottom:16px;"></div>
+      <div class="section-title" style="margin-top:0;">Fuentes a conciliar</div>
+      <div id="conc-fuentes-list"></div>
+      <div class="field help" id="conc-modo-hint" style="margin-top:8px;margin-bottom:16px;"></div>
 
       <div class="section-title" style="margin-top:6px;">Criterios de cruce</div>
       <label class="chk-row"><input type="checkbox" id="crit-comprobante" checked onchange="actualizarAvisoCriterios()"><span><div class="l">Número de comprobante</div><div class="d">Factura, cheque, transferencia, etc.</div></span></label>
@@ -447,7 +435,7 @@ function goPage(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
   document.querySelector('.tab[data-page="'+name+'"]').classList.add('active');
-  if(name==='conciliar') renderConciliarSelects();
+  if(name==='conciliar') renderConciliarFuentesList();
   if(name==='historial') renderHistorial();
 }
 
@@ -750,49 +738,35 @@ function renderFuentes(){
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CONCILIAR: SELECTS + MOTOR
+// CONCILIAR: SELECCIÓN DE FUENTES + MOTOR
 // ═══════════════════════════════════════════════════════════════
-function renderConciliarSelects(){
-  const opts=FUENTES.map(f=>'<option value="'+f.id+'">'+f.nombre+' ('+f.totalFilas+' filas)</option>').join('');
-  const a=document.getElementById('conc-fuenteA'), b=document.getElementById('conc-fuenteB');
-  const hadA=a.value, hadB=b.value;
-  a.innerHTML='<option value="">— Elegir —</option>'+opts;
-  b.innerHTML='<option value="">— Elegir —</option>'+opts;
-  if(FUENTES.some(f=>f.id===hadA)) a.value=hadA;
-  if(FUENTES.some(f=>f.id===hadB)) b.value=hadB;
-  document.getElementById('conc-mismaplanilla-row').style.display=a.value?'flex':'none';
-  onMismaPlanillaChange();
-}
-function onFuenteAChange(){
-  const a=document.getElementById('conc-fuenteA');
-  document.getElementById('conc-mismaplanilla-row').style.display=a.value?'flex':'none';
-  onMismaPlanillaChange();
-}
-function onMismaPlanillaChange(){
-  const misma=document.getElementById('conc-mismaplanilla').checked;
-  const aId=document.getElementById('conc-fuenteA').value;
-  const wrapB=document.getElementById('conc-fuenteB-wrap');
-  const b=document.getElementById('conc-fuenteB');
-  if(misma){
-    wrapB.style.display='none';
-    b.value=aId;
-  } else {
-    wrapB.style.display='';
-    if(b.value===aId) b.value='';
+function renderConciliarFuentesList(){
+  const cont=document.getElementById('conc-fuentes-list');
+  const previamenteTildadas=new Set(fuentesSeleccionadas());
+  if(FUENTES.length===0){
+    cont.innerHTML='<div class="empty"><div class="ei">📥</div><p>Todavía no importaste ninguna fuente.</p></div>';
+    actualizarResumenConciliar();
+    return;
   }
+  cont.innerHTML=FUENTES.slice().sort((a,b)=>b.fechaImport.localeCompare(a.fechaImport)).map(f=>
+    '<label class="chk-row"><input type="checkbox" class="conc-fuente-chk" value="'+f.id+'" onchange="actualizarResumenConciliar()"'+(previamenteTildadas.has(f.id)?' checked':'')+'>'+
+    '<span><div class="l">'+f.nombre+'</div><div class="d">'+f.totalFilas+' filas</div></span></label>'
+  ).join('');
   actualizarResumenConciliar();
 }
+function fuentesSeleccionadas(){
+  return [...document.querySelectorAll('.conc-fuente-chk:checked')].map(el=>el.value);
+}
 function actualizarResumenConciliar(){
-  const aId=document.getElementById('conc-fuenteA').value;
-  const bId=document.getElementById('conc-fuenteB').value;
+  const ids=fuentesSeleccionadas();
   const hint=document.getElementById('conc-modo-hint');
   const btn=document.getElementById('btn-conciliar');
-  if(!aId||!bId){ hint.textContent=''; btn.disabled=true; document.getElementById('conc-criterios-warn').innerHTML=''; return; }
+  if(ids.length===0){ hint.textContent='Elegí al menos una fuente.'; btn.disabled=true; document.getElementById('conc-criterios-warn').innerHTML=''; return; }
   btn.disabled=false;
-  if(aId===bId){
-    hint.innerHTML='🔁 Vas a revisar <b>duplicados dentro de la misma fuente</b> (útil para un excel consolidado con todas las unidades de negocio).';
+  if(ids.length===1){
+    hint.innerHTML='🔁 Vas a revisar <b>duplicados dentro de esta fuente</b>.';
   } else {
-    hint.innerHTML='⚖️ Vas a <b>cruzar dos fuentes distintas</b>: además del cruce, también se revisan duplicados internos de cada una.';
+    hint.innerHTML='⚖️ Vas a cruzar <b>'+ids.length+' fuentes</b>: qué está completo en todas, qué falta y en cuáles, además de los duplicados internos de cada una.';
   }
   actualizarAvisoCriterios();
 }
@@ -804,12 +778,9 @@ const LABEL_CRITERIO={comprobante:'Número de comprobante', importe:'Importe', u
 function actualizarAvisoCriterios(){
   const warn=document.getElementById('conc-criterios-warn');
   if(!warn) return;
-  const aId=document.getElementById('conc-fuenteA').value;
-  const bId=document.getElementById('conc-fuenteB').value;
-  if(!aId||!bId){ warn.innerHTML=''; return; }
-  const fuenteA=FUENTES.find(f=>f.id===aId);
-  const fuenteB=FUENTES.find(f=>f.id===bId);
-  const fuentesActivas=aId===bId ? [fuenteA] : [fuenteA,fuenteB];
+  const ids=fuentesSeleccionadas();
+  if(ids.length===0){ warn.innerHTML=''; return; }
+  const fuentesActivas=ids.map(id=>FUENTES.find(f=>f.id===id)).filter(Boolean);
   const criteriosActivos=['comprobante','importe','usuario','unidadNegocio','proveedor','fecha']
     .filter(k=>document.getElementById('crit-'+(k==='unidadNegocio'?'unidad':k)).checked);
   const avisos=[];
@@ -835,13 +806,14 @@ function claveNoImporte(row, criterios){
 // Agrupa por cercanía de importe encadenando vecinos ordenados — evita el efecto
 // "balde" de redondear cada importe por separado, donde dos valores a 0.5 de
 // diferencia con tolerancia 1 podían caer en baldes distintos y no matchear.
-function agruparPorTolerancia(filas, toleranciaStep){
-  if(filas.length<2) return [filas];
+function agruparPorTolerancia(items, toleranciaStep, getImporte){
+  getImporte=getImporte||(x=>x.importe||0);
+  if(items.length<2) return [items];
   const tol=Math.max(toleranciaStep, 0.005);
-  const ordenado=filas.slice().sort((a,b)=>(a.importe||0)-(b.importe||0));
+  const ordenado=items.slice().sort((a,b)=>getImporte(a)-getImporte(b));
   const grupos=[]; let actual=[ordenado[0]];
   for(let i=1;i<ordenado.length;i++){
-    const diff=Math.abs((ordenado[i].importe||0)-(ordenado[i-1].importe||0));
+    const diff=Math.abs(getImporte(ordenado[i])-getImporte(ordenado[i-1]));
     if(diff<=tol) actual.push(ordenado[i]);
     else { grupos.push(actual); actual=[ordenado[i]]; }
   }
@@ -864,38 +836,29 @@ function detectarDuplicadosInternos(filas, criterios, toleranciaStep){
   });
   return resultado;
 }
-function cruzarFuentes(filasA, filasB, criterios, toleranciaStep){
-  const agrupar=(filas)=>{
-    const m={};
-    filas.forEach(row=>{ const k=claveNoImporte(row,criterios); (m[k]=m[k]||[]).push(row); });
-    return m;
-  };
-  const mapaA=agrupar(filasA), mapaB=agrupar(filasB);
-  const conciliados=[], pendientesA=[], pendientesB=[];
-  const tol=Math.max(toleranciaStep, 0.005);
-  const keys=new Set([...Object.keys(mapaA),...Object.keys(mapaB)]);
-  keys.forEach(k=>{
-    const arrA=mapaA[k]||[];
-    let arrB=(mapaB[k]||[]).slice();
-    if(criterios.importe){
-      arrA.forEach(rowA=>{
-        let mejorIdx=-1, mejorDiff=Infinity;
-        arrB.forEach((rowB,i)=>{
-          const diff=Math.abs((rowA.importe||0)-(rowB.importe||0));
-          if(diff<=tol && diff<mejorDiff){ mejorDiff=diff; mejorIdx=i; }
-        });
-        if(mejorIdx>-1){ conciliados.push({a:rowA,b:arrB[mejorIdx]}); arrB.splice(mejorIdx,1); }
-        else pendientesA.push(rowA);
-      });
-      pendientesB.push(...arrB);
-    } else {
-      const n=Math.min(arrA.length, arrB.length);
-      for(let i=0;i<n;i++) conciliados.push({a:arrA[i], b:arrB[i]});
-      pendientesA.push(...arrA.slice(n));
-      pendientesB.push(...arrB.slice(n));
-    }
+// Cruza N fuentes a la vez: agrupa el pool de todas las filas (etiquetadas con su
+// fuente de origen) por clave + tolerancia de importe, y por cada grupo resultante
+// arma una "instancia" que dice en qué fuentes apareció y en cuáles faltó.
+function cruzarNFuentes(filasPorFuenteArr, criterios, toleranciaStep){
+  const N=filasPorFuenteArr.length;
+  const pool=[];
+  filasPorFuenteArr.forEach((filas,fi)=>{ filas.forEach(row=>pool.push({row,fi})); });
+  const porClave={};
+  pool.forEach(item=>{ const k=claveNoImporte(item.row,criterios); (porClave[k]=porClave[k]||[]).push(item); });
+  const instancias=[];
+  Object.values(porClave).forEach(items=>{
+    const subgrupos = criterios.importe
+      ? agruparPorTolerancia(items, toleranciaStep, x=>x.row.importe||0)
+      : [items];
+    subgrupos.forEach(sub=>{
+      const filasPorFuente=Array.from({length:N},()=>[]);
+      sub.forEach(({row,fi})=>filasPorFuente[fi].push(row));
+      const presentes=[], faltantes=[];
+      filasPorFuente.forEach((arr,fi)=>{ (arr.length?presentes:faltantes).push(fi); });
+      instancias.push({filasPorFuente, presentes, faltantes, completo:faltantes.length===0});
+    });
   });
-  return {conciliados, pendientesA, pendientesB};
+  return instancias;
 }
 function sumaImporte(filas){ return filas.reduce((s,f)=>s+(f.importe||0),0); }
 function riesgoDuplicados(grupos){
@@ -908,11 +871,9 @@ function riesgoDuplicados(grupos){
 }
 
 async function ejecutarConciliacion(){
-  const aId=document.getElementById('conc-fuenteA').value;
-  const bId=document.getElementById('conc-fuenteB').value;
-  const fuenteA=FUENTES.find(f=>f.id===aId);
-  const fuenteB=FUENTES.find(f=>f.id===bId);
-  if(!fuenteA||!fuenteB) return;
+  const ids=fuentesSeleccionadas();
+  const fuentesSel=ids.map(id=>FUENTES.find(f=>f.id===id)).filter(Boolean);
+  if(fuentesSel.length===0) return;
   const criterios={
     comprobante: document.getElementById('crit-comprobante').checked,
     importe: document.getElementById('crit-importe').checked,
@@ -923,33 +884,18 @@ async function ejecutarConciliacion(){
   };
   if(!Object.values(criterios).some(Boolean)){ toast('Elegí al menos un criterio de cruce'); return; }
   const tolerancia=parseFloat(document.getElementById('conc-tolerancia').value)||0;
-  const esSelfCheck=aId===bId;
+  const esSelfCheck=fuentesSel.length===1;
 
-  const duplicadosA=detectarDuplicadosInternos(fuenteA.filas, criterios, tolerancia);
-  const duplicadosB=esSelfCheck? [] : detectarDuplicadosInternos(fuenteB.filas, criterios, tolerancia);
+  const duplicadosPorFuente=fuentesSel.map(f=>detectarDuplicadosInternos(f.filas, criterios, tolerancia));
+  const instancias=esSelfCheck ? [] : cruzarNFuentes(fuentesSel.map(f=>f.filas), criterios, tolerancia);
 
-  let conciliados=[], pendientesA=[], pendientesB=[];
-  if(!esSelfCheck){
-    const r=cruzarFuentes(fuenteA.filas, fuenteB.filas, criterios, tolerancia);
-    conciliados=r.conciliados; pendientesA=r.pendientesA; pendientesB=r.pendientesB;
-  }
-
-  const resumen={
-    totalA: fuenteA.filas.length, totalB: esSelfCheck?0:fuenteB.filas.length,
-    montoA: sumaImporte(fuenteA.filas), montoB: esSelfCheck?0:sumaImporte(fuenteB.filas),
-    countConciliados: conciliados.length, montoConciliado: sumaImporte(conciliados.map(c=>c.a)),
-    countPendientesA: pendientesA.length, montoPendientesA: sumaImporte(pendientesA),
-    countPendientesB: pendientesB.length, montoPendientesB: sumaImporte(pendientesB),
-    countGruposDupA: duplicadosA.length, montoRiesgoDupA: riesgoDuplicados(duplicadosA),
-    countGruposDupB: duplicadosB.length, montoRiesgoDupB: riesgoDuplicados(duplicadosB),
-  };
+  const resumen=calcularResumenN(fuentesSel, instancias, duplicadosPorFuente);
 
   const conciliacion={
     id: uid(), fecha: new Date().toISOString(),
-    fuenteAId: fuenteA.id, fuenteANombre: fuenteA.nombre,
-    fuenteBId: fuenteB.id, fuenteBNombre: fuenteB.nombre,
+    fuentes: fuentesSel.map(f=>({id:f.id, nombre:f.nombre})),
     esSelfCheck, criterios, tolerancia,
-    conciliados, pendientesA, pendientesB, duplicadosA, duplicadosB,
+    duplicadosPorFuente, instancias,
     resumen,
   };
   await dbPut('conciliaciones', conciliacion);
@@ -960,31 +906,75 @@ async function ejecutarConciliacion(){
   goPage('resultados');
   toast('Conciliación lista');
 }
+function calcularResumenN(fuentesSel, instancias, duplicadosPorFuente){
+  const completos=instancias.filter(i=>i.completo);
+  const incompletos=instancias.filter(i=>!i.completo);
+  const montoInstancias=(arr)=>arr.reduce((s,ins)=>s+ins.filasPorFuente.reduce((s2,filas)=>s2+sumaImporte(filas),0),0);
+  return {
+    totalPorFuente: fuentesSel.map(f=>f.filas.length),
+    montoPorFuente: fuentesSel.map(f=>sumaImporte(f.filas)),
+    countCompletos: completos.length, montoCompleto: montoInstancias(completos),
+    countIncompletos: incompletos.length, montoIncompleto: montoInstancias(incompletos),
+    countGruposDupPorFuente: duplicadosPorFuente.map(g=>g.length),
+    montoRiesgoDupPorFuente: duplicadosPorFuente.map(g=>riesgoDuplicados(g)),
+  };
+}
+// Convierte conciliaciones guardadas en el formato viejo (A/B fijo) al formato
+// nuevo de N fuentes, en memoria — no se reescribe la base, no se pierde nada.
+function normalizarConciliacion(c){
+  if(c.fuentes) return c;
+  const N=c.esSelfCheck?1:2;
+  const fuentes=[{id:c.fuenteAId, nombre:c.fuenteANombre}];
+  if(N===2) fuentes.push({id:c.fuenteBId, nombre:c.fuenteBNombre});
+  const duplicadosPorFuente=[c.duplicadosA||[]];
+  if(N===2) duplicadosPorFuente.push(c.duplicadosB||[]);
+  const instancias=[];
+  (c.conciliados||[]).forEach(p=>instancias.push({filasPorFuente:[[p.a],[p.b]], presentes:[0,1], faltantes:[], completo:true}));
+  (c.pendientesA||[]).forEach(row=>instancias.push({filasPorFuente:[[row],[]], presentes:[0], faltantes:[1], completo:false}));
+  (c.pendientesB||[]).forEach(row=>instancias.push({filasPorFuente:[[],[row]], presentes:[1], faltantes:[0], completo:false}));
+  const r=c.resumen||{};
+  const totalPorFuente=[r.totalA||0], montoPorFuente=[r.montoA||0];
+  const countGruposDupPorFuente=[r.countGruposDupA||0], montoRiesgoDupPorFuente=[r.montoRiesgoDupA||0];
+  if(N===2){
+    totalPorFuente.push(r.totalB||0); montoPorFuente.push(r.montoB||0);
+    countGruposDupPorFuente.push(r.countGruposDupB||0); montoRiesgoDupPorFuente.push(r.montoRiesgoDupB||0);
+  }
+  const resumen={
+    totalPorFuente, montoPorFuente,
+    countCompletos:r.countConciliados||0, montoCompleto:r.montoConciliado||0,
+    countIncompletos:(r.countPendientesA||0)+(r.countPendientesB||0), montoIncompleto:(r.montoPendientesA||0)+(r.montoPendientesB||0),
+    countGruposDupPorFuente, montoRiesgoDupPorFuente,
+  };
+  return {id:c.id, fecha:c.fecha, fuentes, esSelfCheck:c.esSelfCheck, criterios:c.criterios, tolerancia:c.tolerancia, duplicadosPorFuente, instancias, resumen, _legacy:true};
+}
 
 // ═══════════════════════════════════════════════════════════════
 // RENDER: RESULTADOS
 // ═══════════════════════════════════════════════════════════════
-let _resTabActiva='conciliados';
+let _resTabActiva='completos';
+function nombreFuente(c, fi){ return (c.fuentes[fi]||{}).nombre||'?'; }
+function tabsResultados(c){
+  const tabs=[];
+  if(c.esSelfCheck){
+    tabs.push(['dup0','⚠️ Duplicados detectados', c.duplicadosPorFuente[0].length]);
+  } else {
+    tabs.push(['completos','✅ Completos', c.instancias.filter(i=>i.completo).length]);
+    tabs.push(['incompletos','⚠️ Incompletos', c.instancias.filter(i=>!i.completo).length]);
+    c.fuentes.forEach((f,fi)=>tabs.push(['dup'+fi,'⚠️ Duplicados '+f.nombre, c.duplicadosPorFuente[fi].length]));
+  }
+  return tabs;
+}
 function renderResultados(c){
   if(!c){ document.getElementById('resultados-vacio').style.display='block'; document.getElementById('resultados-contenido').style.display='none'; return; }
   document.getElementById('resultados-vacio').style.display='none';
   const cont=document.getElementById('resultados-contenido');
   cont.style.display='block';
 
-  const tabs=[];
-  if(!c.esSelfCheck){
-    tabs.push(['conciliados','✅ Conciliados', c.conciliados.length]);
-    tabs.push(['pendientesA','⏳ Solo en '+c.fuenteANombre, c.pendientesA.length]);
-    tabs.push(['pendientesB','⏳ Solo en '+c.fuenteBNombre, c.pendientesB.length]);
-    tabs.push(['duplicadosA','⚠️ Duplicados '+c.fuenteANombre, c.duplicadosA.length]);
-    tabs.push(['duplicadosB','⚠️ Duplicados '+c.fuenteBNombre, c.duplicadosB.length]);
-  } else {
-    tabs.push(['duplicadosA','⚠️ Duplicados detectados', c.duplicadosA.length]);
-  }
+  const tabs=tabsResultados(c);
   if(!tabs.some(t=>t[0]===_resTabActiva)) _resTabActiva=tabs[0][0];
 
   let html='<div class="card">';
-  html+='<div style="font-size:12px;color:var(--text3);margin-bottom:12px;">'+fmtFechaHora(c.fecha)+' · '+(c.esSelfCheck? 'Revisión de duplicados en <b>'+c.fuenteANombre+'</b>' : '<b>'+c.fuenteANombre+'</b> vs <b>'+c.fuenteBNombre+'</b>')+'</div>';
+  html+='<div style="font-size:12px;color:var(--text3);margin-bottom:12px;">'+fmtFechaHora(c.fecha)+' · '+(c.esSelfCheck? 'Revisión de duplicados en <b>'+c.fuentes[0].nombre+'</b>' : c.fuentes.map(f=>'<b>'+f.nombre+'</b>').join(' + '))+'</div>';
   html+='<div class="res-tabs">'+tabs.map(t=>'<button class="res-tab'+(t[0]===_resTabActiva?' active':'')+'" onclick="cambiarResTab(\''+t[0]+'\')">'+t[1]+' <span class="n">('+t[2]+')</span></button>').join('')+'</div>';
   html+='<div id="res-tab-body"></div>';
   html+='</div>';
@@ -1001,26 +991,39 @@ function filaResumenTexto(r){
   if(r.fecha) partes.push(fmtFecha(r.fecha));
   return partes.join(' · ');
 }
+function _filaTr(r, conFuente){
+  return '<tr>'+(conFuente!=null?'<td>'+conFuente+'</td>':'')+'<td>'+(r.comprobante||'—')+'</td><td>'+(r.proveedor||'—')+'</td><td>'+fmtMoneda(r.importe)+'</td><td>'+(r.unidadNegocio||'—')+'</td><td>'+(r.usuario||'—')+'</td><td>'+fmtFecha(r.fecha)+'</td></tr>';
+}
 function renderResTabBody(c){
   const body=document.getElementById('res-tab-body');
   if(!body) return;
-  if(_resTabActiva==='conciliados'){
-    if(c.conciliados.length===0){ body.innerHTML='<div class="empty"><div class="ei">🔍</div><p>No hubo coincidencias con estos criterios.</p></div>'; return; }
-    body.innerHTML='<div class="imp-scroll" style="max-height:420px;"><table class="imp-table"><thead><tr><th>Comprobante</th><th>Proveedor</th><th>Importe</th><th>Unidad</th><th>Usuario</th><th>Fecha</th></tr></thead><tbody>'+
-      c.conciliados.map(p=>'<tr><td>'+(p.a.comprobante||'—')+'</td><td>'+(p.a.proveedor||'—')+'</td><td>'+fmtMoneda(p.a.importe)+'</td><td>'+(p.a.unidadNegocio||'—')+'</td><td>'+(p.a.usuario||'—')+'</td><td>'+fmtFecha(p.a.fecha)+'</td></tr>').join('')+
+  const theadCols='<th>Comprobante</th><th>Proveedor</th><th>Importe</th><th>Unidad</th><th>Usuario</th><th>Fecha</th>';
+  if(_resTabActiva==='completos'){
+    const filas=c.instancias.filter(i=>i.completo);
+    if(filas.length===0){ body.innerHTML='<div class="empty"><div class="ei">🔍</div><p>No hubo coincidencias con estos criterios.</p></div>'; return; }
+    body.innerHTML='<div class="imp-scroll" style="max-height:420px;"><table class="imp-table"><thead><tr>'+theadCols+'</tr></thead><tbody>'+
+      filas.map(ins=>_filaTr(ins.filasPorFuente.find(f=>f.length)[0])).join('')+
       '</tbody></table></div>';
     return;
   }
-  if(_resTabActiva==='pendientesA'||_resTabActiva==='pendientesB'){
-    const filas=_resTabActiva==='pendientesA'?c.pendientesA:c.pendientesB;
-    if(filas.length===0){ body.innerHTML='<div class="empty"><div class="ei">✅</div><p>No quedaron registros sin conciliar de este lado.</p></div>'; return; }
-    body.innerHTML='<div class="imp-scroll" style="max-height:420px;"><table class="imp-table"><thead><tr><th>Comprobante</th><th>Proveedor</th><th>Importe</th><th>Unidad</th><th>Usuario</th><th>Fecha</th></tr></thead><tbody>'+
-      filas.map(r=>'<tr><td>'+(r.comprobante||'—')+'</td><td>'+(r.proveedor||'—')+'</td><td>'+fmtMoneda(r.importe)+'</td><td>'+(r.unidadNegocio||'—')+'</td><td>'+(r.usuario||'—')+'</td><td>'+fmtFecha(r.fecha)+'</td></tr>').join('')+
-      '</tbody></table></div>';
+  if(_resTabActiva==='incompletos'){
+    const filas=c.instancias.filter(i=>!i.completo);
+    if(filas.length===0){ body.innerHTML='<div class="empty"><div class="ei">✅</div><p>No quedaron registros incompletos.</p></div>'; return; }
+    const grupos={};
+    filas.forEach(ins=>{ const k=ins.faltantes.join(','); (grupos[k]=grupos[k]||[]).push(ins); });
+    body.innerHTML=Object.entries(grupos).sort((a,b)=>b[1].length-a[1].length).map(([k,insts])=>{
+      const faltantes=k.split(',').map(Number);
+      const presentes=c.fuentes.map((f,fi)=>fi).filter(fi=>!faltantes.includes(fi));
+      const rows=[];
+      insts.forEach(ins=>{ presentes.forEach(fi=>ins.filasPorFuente[fi].forEach(r=>rows.push(_filaTr(r, nombreFuente(c,fi))))); });
+      return '<div class="section-title" style="margin-top:18px;">Está en: '+presentes.map(fi=>nombreFuente(c,fi)).join(', ')+' — Falta en: '+faltantes.map(fi=>nombreFuente(c,fi)).join(', ')+' <span class="pill">'+insts.length+'</span></div>'+
+        '<div class="imp-scroll" style="max-height:320px;"><table class="imp-table"><thead><tr><th>Fuente</th>'+theadCols+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
+    }).join('');
     return;
   }
-  if(_resTabActiva==='duplicadosA'||_resTabActiva==='duplicadosB'){
-    const grupos=_resTabActiva==='duplicadosA'?c.duplicadosA:c.duplicadosB;
+  if(_resTabActiva.startsWith('dup')){
+    const fi=parseInt(_resTabActiva.slice(3),10);
+    const grupos=c.duplicadosPorFuente[fi];
     if(grupos.length===0){ body.innerHTML='<div class="empty"><div class="ei">✅</div><p>No se detectaron duplicados.</p></div>'; return; }
     body.innerHTML=grupos.map((g,gi)=>{
       const importes=g.map(r=>r.importe||0);
@@ -1037,7 +1040,8 @@ function renderResTabBody(c){
   }
 }
 function generarAviso(gi, tabKey){
-  const grupos=tabKey==='duplicadosA'?_conciliacionActual.duplicadosA:_conciliacionActual.duplicadosB;
+  const fi=parseInt(tabKey.slice(3),10);
+  const grupos=_conciliacionActual.duplicadosPorFuente[fi];
   const g=grupos[gi];
   const importes=g.map(r=>r.importe||0);
   const maxImp=Math.max(...importes);
@@ -1058,16 +1062,23 @@ function generarAviso(gi, tabKey){
 // ═══════════════════════════════════════════════════════════════
 // DATOS COMPARTIDOS DEL INFORME (usado por HTML, Excel, PDF y PPT)
 // ═══════════════════════════════════════════════════════════════
+function mismoSetFuentes(x,c){
+  const idsX=x.fuentes.map(f=>f.id).slice().sort().join('|');
+  const idsC=c.fuentes.map(f=>f.id).slice().sort().join('|');
+  return idsX===idsC;
+}
 function calcularInformeData(c){
   const r=c.resumen;
-  const totalRegistros=r.totalA+r.totalB;
-  const pctConciliado=r.totalA>0 ? Math.round((r.countConciliados/r.totalA)*100) : 0;
-  const montoRiesgoTotal=r.montoRiesgoDupA+r.montoRiesgoDupB;
-  const gruposDupTotal=r.countGruposDupA+r.countGruposDupB;
+  const totalRegistros=r.totalPorFuente.reduce((a,b)=>a+b,0);
+  const totalInstancias=r.countCompletos+r.countIncompletos;
+  const pctCompleto=totalInstancias>0 ? Math.round((r.countCompletos/totalInstancias)*100) : 0;
+  const montoRiesgoTotal=r.montoRiesgoDupPorFuente.reduce((a,b)=>a+b,0);
+  const gruposDupTotal=r.countGruposDupPorFuente.reduce((a,b)=>a+b,0);
 
-  const grupos=[...c.duplicadosA.map(g=>({g,origen:c.fuenteANombre})),...c.duplicadosB.map(g=>({g,origen:c.fuenteBNombre}))];
+  const grupos=[];
+  c.duplicadosPorFuente.forEach(gruposFuente=>gruposFuente.forEach(g=>grupos.push(g)));
   const rankUnidad={}, rankUsuario={};
-  grupos.forEach(({g})=>{
+  grupos.forEach(g=>{
     const importes=g.map(x=>x.importe||0);
     const max=Math.max(...importes);
     const keepIdx=importes.indexOf(max);
@@ -1081,8 +1092,13 @@ function calcularInformeData(c){
   });
   const rankUnidadArr=Object.entries(rankUnidad).sort((a,b)=>b[1].monto-a[1].monto);
   const rankUsuarioArr=Object.entries(rankUsuario).sort((a,b)=>b[1].monto-a[1].monto);
-  const historialMismoPar=CONCILIACIONES.filter(x=>x.fuenteAId===c.fuenteAId && x.fuenteBId===c.fuenteBId).sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  return {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar};
+
+  const coberturaPorFuente=c.esSelfCheck? [] : c.fuentes.map((f,fi)=>({
+    label:f.nombre, a:r.countCompletos, b:c.instancias.filter(ins=>!ins.completo && ins.faltantes.includes(fi)).length,
+  }));
+
+  const historialMismoSet=c.esSelfCheck? [] : CONCILIACIONES.filter(x=>!x.esSelfCheck && mismoSetFuentes(x,c)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  return {r,totalRegistros,pctCompleto,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoSet,coberturaPorFuente};
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1094,14 +1110,21 @@ function renderInforme(c){
   const cont=document.getElementById('informe-contenido');
   cont.style.display='block';
 
-  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
+  const {r,totalRegistros,pctCompleto,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoSet,coberturaPorFuente}=calcularInformeData(c);
+  const nombresFuentes=c.fuentes.map(f=>f.nombre).join(' + ');
 
   let html='<div class="kpi-grid">'+
-    '<div class="kpi"><div class="kl">Registros analizados</div><div class="kv">'+totalRegistros+'</div><div class="ks">'+(c.esSelfCheck?c.fuenteANombre:c.fuenteANombre+' + '+c.fuenteBNombre)+'</div></div>'+
-    '<div class="kpi"><div class="kl">% Conciliado</div><div class="kv green">'+(c.esSelfCheck?'—':pctConciliado+'%')+'</div><div class="ks">'+r.countConciliados+' pares cruzados</div></div>'+
-    '<div class="kpi"><div class="kl">Monto pendiente</div><div class="kv red">'+fmtMoneda(r.montoPendientesA+r.montoPendientesB)+'</div><div class="ks">'+(r.countPendientesA+r.countPendientesB)+' registros sin cruzar</div></div>'+
+    '<div class="kpi"><div class="kl">Registros analizados</div><div class="kv">'+totalRegistros+'</div><div class="ks">'+nombresFuentes+'</div></div>'+
+    '<div class="kpi"><div class="kl">% Completo</div><div class="kv green">'+(c.esSelfCheck?'—':pctCompleto+'%')+'</div><div class="ks">'+r.countCompletos+' registros completos</div></div>'+
+    '<div class="kpi"><div class="kl">Monto incompleto</div><div class="kv red">'+fmtMoneda(r.montoIncompleto)+'</div><div class="ks">'+r.countIncompletos+' registros incompletos</div></div>'+
     '<div class="kpi"><div class="kl">Riesgo por duplicados</div><div class="kv gold">'+fmtMoneda(montoRiesgoTotal)+'</div><div class="ks">'+gruposDupTotal+' grupos detectados</div></div>'+
   '</div>';
+
+  if(coberturaPorFuente.length){
+    html+='<div class="section-title">Cobertura por fuente</div>';
+    html+='<div class="card"><table class="rank-table"><thead><tr><th>Fuente</th><th>Completos</th><th>Le falta</th></tr></thead><tbody>'+
+      coberturaPorFuente.map(x=>'<tr><td>'+x.label+'</td><td>'+x.a+'</td><td>'+x.b+'</td></tr>').join('')+'</tbody></table></div>';
+  }
 
   html+='<div class="section-title">Ranking por unidad de negocio</div>';
   html+='<div class="card">'+(rankUnidadArr.length? '<table class="rank-table"><thead><tr><th>Unidad</th><th>Registros en riesgo</th><th>Monto en riesgo</th></tr></thead><tbody>'+
@@ -1113,12 +1136,12 @@ function renderInforme(c){
     rankUsuarioArr.map(([n,v])=>'<tr><td>'+n+'</td><td>'+v.cant+'</td><td>'+fmtMoneda(v.monto)+'</td></tr>').join('')+'</tbody></table>'
     : '<div class="empty"><p>Sin datos de duplicados para rankear.</p></div>')+'</div>';
 
-  if(historialMismoPar.length>1){
-    const vals=historialMismoPar.map(x=>x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB);
+  if(historialMismoSet.length>1){
+    const vals=historialMismoSet.map(x=>x.resumen.montoRiesgoDupPorFuente.reduce((a,b)=>a+b,0));
     const max=Math.max(...vals,1);
     html+='<div class="section-title">Evolución del riesgo en el tiempo</div><div class="card">'+
       '<div class="chart-bars">'+vals.map(v=>'<div class="chart-bar" style="height:'+Math.max(4,(v/max)*120)+'px;"><div class="cb-val">'+fmtMoneda(v)+'</div></div>').join('')+'</div>'+
-      '<div class="chart-labels">'+historialMismoPar.map(x=>'<span>'+new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})+'</span>').join('')+'</div>'+
+      '<div class="chart-labels">'+historialMismoSet.map(x=>'<span>'+new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})+'</span>').join('')+'</div>'+
     '</div>';
   }
 
@@ -1283,8 +1306,46 @@ function chartLineaPNG(labels, values, opts){
 }
 function segComposicionDe(c, r, montoRiesgoTotal){
   return c.esSelfCheck
-    ? [{label:'Sin duplicar', value:Math.max(0,r.montoA-montoRiesgoTotal), color:'#'+BRAND.green},{label:'Riesgo duplicados', value:montoRiesgoTotal, color:'#'+BRAND.gold}]
-    : [{label:'Conciliado', value:r.montoConciliado, color:'#'+BRAND.green},{label:'Pendiente', value:r.montoPendientesA+r.montoPendientesB, color:'#'+BRAND.red},{label:'Riesgo duplicados', value:montoRiesgoTotal, color:'#'+BRAND.gold}];
+    ? [{label:'Sin duplicar', value:Math.max(0,r.montoPorFuente[0]-montoRiesgoTotal), color:'#'+BRAND.green},{label:'Riesgo duplicados', value:montoRiesgoTotal, color:'#'+BRAND.gold}]
+    : [{label:'Completo', value:r.montoCompleto, color:'#'+BRAND.green},{label:'Incompleto', value:r.montoIncompleto, color:'#'+BRAND.red},{label:'Riesgo duplicados', value:montoRiesgoTotal, color:'#'+BRAND.gold}];
+}
+// Barras horizontales apiladas de 2 series (ej. completo vs falta, por fuente)
+function chartBarrasApiladasPNG(items, opts){
+  opts=opts||{};
+  const w=opts.ancho||620, h=opts.alto||Math.max(190, 42*Math.max(items.length,1)+(opts.title?66:24));
+  const {cv,ctx}=_canvasCtx(w,h);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,w,h);
+  if(opts.title){ ctx.fillStyle='#0F172A'; ctx.font='bold 16px Arial,sans-serif'; ctx.textAlign='left'; ctx.fillText(opts.title, 18, 30); }
+  const colorA=opts.colorA||'#22C55E', colorB=opts.colorB||'#EF4444';
+  if(opts.title){
+    ctx.font='11px Arial,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillStyle=colorA; ctx.fillRect(18,42,11,11); ctx.fillStyle='#334155'; ctx.fillText(opts.labelA||'Completo',33,48);
+    ctx.fillStyle=colorB; ctx.fillRect(140,42,11,11); ctx.fillStyle='#334155'; ctx.fillText(opts.labelB||'Le falta',155,48);
+  }
+  if(!items.length){
+    ctx.fillStyle='#9CA3AF'; ctx.font='13px Arial,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Sin datos para mostrar', w/2, h/2);
+    return cv.toDataURL('image/png');
+  }
+  const padTop=opts.title?60:20, padLeft=Math.min(200, w*0.32), padRight=90, padBottom=14;
+  const max=Math.max(...items.map(i=>i.a+i.b),1);
+  const rowH=(h-padTop-padBottom)/items.length;
+  const barMaxW=w-padLeft-padRight;
+  items.forEach((it,i)=>{
+    const y=padTop+i*rowH;
+    const barH=Math.min(24, rowH*0.55);
+    const by=y+(rowH-barH)/2;
+    ctx.fillStyle='#334155'; ctx.font='12.5px Arial,sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    const lbl=it.label.length>24? it.label.slice(0,23)+'…' : it.label;
+    ctx.fillText(lbl, padLeft-12, by+barH/2);
+    ctx.fillStyle='#F1F5F9'; ctx.fillRect(padLeft, by, barMaxW, barH);
+    const wa=max? (it.a/max)*barMaxW : 0, wb=max? (it.b/max)*barMaxW : 0;
+    ctx.fillStyle=colorA; ctx.fillRect(padLeft, by, wa, barH);
+    ctx.fillStyle=colorB; ctx.fillRect(padLeft+wa, by, wb, barH);
+    ctx.fillStyle='#0F172A'; ctx.font='bold 11.5px Arial,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText(it.a+' / '+(it.a+it.b), padLeft+wa+wb+8, by+barH/2);
+  });
+  return cv.toDataURL('image/png');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1299,10 +1360,12 @@ function _descargarBlob(blob, filename){
   setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
 
+function _filaRepresentativa(ins){ return ins.filasPorFuente.find(f=>f.length)[0]; }
 async function exportarExcel(){
   const c=_conciliacionActual; if(!c) return;
   if(typeof ExcelJS==='undefined'){ toast('No se pudo cargar la librería de Excel (revisá tu conexión)'); return; }
-  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
+  const {r,totalRegistros,pctCompleto,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoSet,coberturaPorFuente}=calcularInformeData(c);
+  const nombresFuentes=c.fuentes.map(f=>f.nombre).join(' + ');
 
   const wb=new ExcelJS.Workbook();
   wb.creator='Frigurso Conciliaciones'; wb.created=new Date();
@@ -1317,13 +1380,13 @@ async function exportarExcel(){
   t.alignment={vertical:'middle'};
   ws.mergeCells('B4:G4');
   const sub=ws.getCell('B4');
-  sub.value=fmtFechaHora(c.fecha)+'  ·  '+c.fuenteANombre+(c.esSelfCheck?' (revisión interna de duplicados)':' vs '+c.fuenteBNombre);
+  sub.value=fmtFechaHora(c.fecha)+'  ·  '+(c.esSelfCheck?nombresFuentes+' (revisión interna de duplicados)':nombresFuentes);
   sub.font={italic:true,size:11,color:{argb:'FF'+BRAND.text2}};
 
   const kpiDefs=[
-    {label:'REGISTROS ANALIZADOS', value:String(totalRegistros), sub:(c.esSelfCheck?c.fuenteANombre:c.fuenteANombre+' + '+c.fuenteBNombre), color:BRAND.accent},
-    {label:'% CONCILIADO', value:(c.esSelfCheck?'—':pctConciliado+'%'), sub:r.countConciliados+' pares cruzados', color:BRAND.green},
-    {label:'MONTO PENDIENTE', value:fmtMoneda(r.montoPendientesA+r.montoPendientesB), sub:(r.countPendientesA+r.countPendientesB)+' registros sin cruzar', color:BRAND.red},
+    {label:'REGISTROS ANALIZADOS', value:String(totalRegistros), sub:nombresFuentes, color:BRAND.accent},
+    {label:'% COMPLETO', value:(c.esSelfCheck?'—':pctCompleto+'%'), sub:r.countCompletos+' registros completos', color:BRAND.green},
+    {label:'MONTO INCOMPLETO', value:fmtMoneda(r.montoIncompleto), sub:r.countIncompletos+' registros incompletos', color:BRAND.red},
     {label:'RIESGO POR DUPLICADOS', value:fmtMoneda(montoRiesgoTotal), sub:gruposDupTotal+' grupos detectados', color:BRAND.gold},
   ];
   const tileCols=['B','C','D','E'];
@@ -1352,35 +1415,41 @@ async function exportarExcel(){
   }
   const segComposicion=segComposicionDe(c, r, montoRiesgoTotal);
   _addImg(chartDonaPNG(segComposicion, {title:'Composición del monto analizado', ancho:560, alto:270}), 1, 10, 560, 270);
+  let rowSiguiente=26;
+  if(coberturaPorFuente.length){
+    const coberturaH=Math.max(190, 42*Math.min(coberturaPorFuente.length,8)+66);
+    _addImg(chartBarrasApiladasPNG(coberturaPorFuente, {title:'Cobertura por fuente', ancho:600, alto:coberturaH}), 1, rowSiguiente, 600, coberturaH);
+    rowSiguiente+=Math.ceil(coberturaH/20)+2;
+  }
   const barUnidadH=Math.max(190, 42*Math.min(rankUnidadArr.length,8)+58);
-  _addImg(chartBarrasPNG(rankUnidadArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por unidad de negocio', color:'#'+BRAND.accent, money:true, ancho:600, alto:barUnidadH}), 1, 26, 600, barUnidadH);
+  _addImg(chartBarrasPNG(rankUnidadArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por unidad de negocio', color:'#'+BRAND.accent, money:true, ancho:600, alto:barUnidadH}), 1, rowSiguiente, 600, barUnidadH);
+  rowSiguiente+=Math.ceil(barUnidadH/20)+2;
   const barUsuarioH=Math.max(190, 42*Math.min(rankUsuarioArr.length,8)+58);
-  const rowUsuario=26+Math.ceil(barUnidadH/20)+2;
-  _addImg(chartBarrasPNG(rankUsuarioArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por usuario', color:'#'+BRAND.purple, money:true, ancho:600, alto:barUsuarioH}), 1, rowUsuario, 600, barUsuarioH);
-  if(historialMismoPar.length>1){
-    const rowEvol=rowUsuario+Math.ceil(barUsuarioH/20)+2;
+  _addImg(chartBarrasPNG(rankUsuarioArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por usuario', color:'#'+BRAND.purple, money:true, ancho:600, alto:barUsuarioH}), 1, rowSiguiente, 600, barUsuarioH);
+  rowSiguiente+=Math.ceil(barUsuarioH/20)+2;
+  if(historialMismoSet.length>1){
     _addImg(chartLineaPNG(
-      historialMismoPar.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})),
-      historialMismoPar.map(x=>x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB),
+      historialMismoSet.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})),
+      historialMismoSet.map(x=>x.resumen.montoRiesgoDupPorFuente.reduce((a,b)=>a+b,0)),
       {title:'Evolución del riesgo en el tiempo', color:'#'+BRAND.gold, ancho:600, alto:230}
-    ), 1, rowEvol, 600, 230);
+    ), 1, rowSiguiente, 600, 230);
   }
 
   // ── RESUMEN ────────────────────────────────────────────────
   const wsR=wb.addWorksheet('Resumen');
   wsR.columns=[{header:'Campo',key:'k',width:26},{header:'Valor',key:'v',width:30}];
   wsR.getRow(1).eachCell(cell=>{ cell.font={bold:true,color:{argb:'FFFFFFFF'}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+BRAND.navy}}; });
-  const resumenRows=[
-    ['Fecha', fmtFechaHora(c.fecha)],
-    ['Fuente A', c.fuenteANombre],
-    ['Fuente B', c.esSelfCheck?'(misma que A)':c.fuenteBNombre],
-    ['Registros A', r.totalA], ['Registros B', r.totalB],
-    ['Conciliados', r.countConciliados], ['Monto conciliado', r.montoConciliado],
-    ['Pendientes A', r.countPendientesA], ['Monto pendiente A', r.montoPendientesA],
-    ['Pendientes B', r.countPendientesB], ['Monto pendiente B', r.montoPendientesB],
-    ['Grupos duplicados A', r.countGruposDupA], ['Riesgo duplicados A', r.montoRiesgoDupA],
-    ['Grupos duplicados B', r.countGruposDupB], ['Riesgo duplicados B', r.montoRiesgoDupB],
-  ];
+  const resumenRows=[['Fecha', fmtFechaHora(c.fecha)]];
+  c.fuentes.forEach((f,fi)=>{
+    resumenRows.push(['Fuente '+(fi+1), f.nombre]);
+    resumenRows.push(['Registros fuente '+(fi+1), r.totalPorFuente[fi]]);
+    resumenRows.push(['Grupos duplicados fuente '+(fi+1), r.countGruposDupPorFuente[fi]]);
+    resumenRows.push(['Riesgo duplicados fuente '+(fi+1), r.montoRiesgoDupPorFuente[fi]]);
+  });
+  if(!c.esSelfCheck){
+    resumenRows.push(['Completos', r.countCompletos], ['Monto completo', r.montoCompleto]);
+    resumenRows.push(['Incompletos', r.countIncompletos], ['Monto incompleto', r.montoIncompleto]);
+  }
   resumenRows.forEach(row=>{
     const nuevaFila=wsR.addRow(row);
     nuevaFila.getCell(1).font={bold:true};
@@ -1388,45 +1457,52 @@ async function exportarExcel(){
   });
 
   // ── HOJAS DE DATOS ─────────────────────────────────────────
-  function _hojaDatos(nombre, filas, headerColor){
+  function _hojaDatos(nombre, filas, headerColor, conFuente){
     if(!filas.length) return;
     const wsD=wb.addWorksheet(nombre, {views:[{state:'frozen',ySplit:1}]});
     wsD.columns=[
+      ...(conFuente?[{header:'Fuente',key:'fuente',width:20}]:[]),
       {header:'Fecha',key:'fecha',width:12},{header:'Comprobante',key:'comprobante',width:18},
       {header:'Proveedor',key:'proveedor',width:26},{header:'Unidad de negocio',key:'unidadNegocio',width:22},
       {header:'Usuario',key:'usuario',width:18},{header:'Importe',key:'importe',width:16},
     ];
     wsD.getRow(1).eachCell(cell=>{ cell.font={bold:true,color:{argb:'FFFFFFFF'}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+headerColor}}; cell.alignment={vertical:'middle'}; });
-    filas.forEach(row=>wsD.addRow({fecha:row.fecha?fmtFecha(row.fecha):'', comprobante:row.comprobante||'', proveedor:row.proveedor||'', unidadNegocio:row.unidadNegocio||'', usuario:row.usuario||'', importe:row.importe||0}));
+    filas.forEach(row=>wsD.addRow({fuente:row._fuenteNombre||'', fecha:row.fecha?fmtFecha(row.fecha):'', comprobante:row.comprobante||'', proveedor:row.proveedor||'', unidadNegocio:row.unidadNegocio||'', usuario:row.usuario||'', importe:row.importe||0}));
     wsD.getColumn('importe').numFmt='"$" #,##0.00';
-    wsD.autoFilter={from:'A1',to:'F1'};
+    wsD.autoFilter={from:'A1',to:String.fromCharCode(65+wsD.columns.length-1)+'1'};
   }
-  _hojaDatos('Conciliados', c.conciliados.map(p=>p.a), BRAND.green);
-  _hojaDatos('Pendientes A', c.pendientesA, BRAND.accent);
-  _hojaDatos('Pendientes B', c.pendientesB, BRAND.purple);
+  if(!c.esSelfCheck){
+    _hojaDatos('Completos', c.instancias.filter(i=>i.completo).map(_filaRepresentativa), BRAND.green, false);
+    const incompletasConFuente=[];
+    c.instancias.filter(i=>!i.completo).forEach(ins=>{
+      ins.presentes.forEach(fi=>ins.filasPorFuente[fi].forEach(row=>incompletasConFuente.push(Object.assign({_fuenteNombre:nombreFuente(c,fi)}, row))));
+    });
+    _hojaDatos('Incompletos', incompletasConFuente, BRAND.red, true);
+  }
 
-  const dupGrupos=[...c.duplicadosA,...c.duplicadosB];
+  const dupGrupos=[];
+  c.duplicadosPorFuente.forEach((grupos,fi)=>grupos.forEach(g=>dupGrupos.push({g,fi})));
   if(dupGrupos.length){
     const wsDup=wb.addWorksheet('Duplicados', {views:[{state:'frozen',ySplit:1}]});
     wsDup.columns=[
-      {header:'Grupo',key:'grupo',width:10},{header:'Estado',key:'estado',width:14},{header:'Fecha',key:'fecha',width:12},
+      {header:'Grupo',key:'grupo',width:10},{header:'Fuente',key:'fuente',width:20},{header:'Estado',key:'estado',width:14},{header:'Fecha',key:'fecha',width:12},
       {header:'Comprobante',key:'comprobante',width:18},{header:'Proveedor',key:'proveedor',width:26},
       {header:'Unidad de negocio',key:'unidadNegocio',width:22},{header:'Usuario',key:'usuario',width:18},{header:'Importe',key:'importe',width:16},
     ];
     wsDup.getRow(1).eachCell(cell=>{ cell.font={bold:true,color:{argb:'FFFFFFFF'}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+BRAND.red}}; });
-    dupGrupos.forEach((g,gi)=>{
+    dupGrupos.forEach(({g,fi},gi)=>{
       const importes=g.map(x=>x.importe||0);
       const max=Math.max(...importes);
       const keepIdx=importes.indexOf(max);
       g.forEach((row,i)=>{
-        const nuevaFila=wsDup.addRow({grupo:'Grupo '+(gi+1), estado:i===keepIdx?'✓ Mantener':'⚠ Riesgo', fecha:row.fecha?fmtFecha(row.fecha):'', comprobante:row.comprobante||'', proveedor:row.proveedor||'', unidadNegocio:row.unidadNegocio||'', usuario:row.usuario||'', importe:row.importe||0});
+        const nuevaFila=wsDup.addRow({grupo:'Grupo '+(gi+1), fuente:nombreFuente(c,fi), estado:i===keepIdx?'✓ Mantener':'⚠ Riesgo', fecha:row.fecha?fmtFecha(row.fecha):'', comprobante:row.comprobante||'', proveedor:row.proveedor||'', unidadNegocio:row.unidadNegocio||'', usuario:row.usuario||'', importe:row.importe||0});
         const fill=i===keepIdx?'FFDCFCE7':'FFFEE2E2';
         nuevaFila.eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:fill}}; });
         nuevaFila.getCell('estado').font={bold:true,color:{argb:i===keepIdx?'FF15803D':'FFB91C1C'}};
       });
     });
     wsDup.getColumn('importe').numFmt='"$" #,##0.00';
-    wsDup.autoFilter={from:'A1',to:'H1'};
+    wsDup.autoFilter={from:'A1',to:'I1'};
   }
 
   const buf=await wb.xlsx.writeBuffer();
@@ -1436,23 +1512,27 @@ async function exportarExcel(){
 
 function exportarPDF(){
   const c=_conciliacionActual; if(!c) return;
-  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
+  const {r,totalRegistros,pctCompleto,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoSet,coberturaPorFuente}=calcularInformeData(c);
+  const nombresFuentes=c.fuentes.map(f=>f.nombre).join(' + ');
   const win=window.open('','_blank');
   if(!win){ toast('El navegador bloqueó la ventana. Habilitá pop-ups para exportar el PDF.'); return; }
 
   const segComposicion=segComposicionDe(c, r, montoRiesgoTotal);
   const donutImg=chartDonaPNG(segComposicion, {title:'Composición del monto analizado', ancho:470, alto:250});
+  const coberturaImg=coberturaPorFuente.length ? chartBarrasApiladasPNG(coberturaPorFuente, {title:'Cobertura por fuente', ancho:470, alto:Math.max(180,42*Math.min(coberturaPorFuente.length,8)+64)}) : null;
   const barUnidadImg=chartBarrasPNG(rankUnidadArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por unidad de negocio', color:'#'+BRAND.accent, money:true, ancho:470, alto:Math.max(180,42*Math.min(rankUnidadArr.length,8)+56)});
   const barUsuarioImg=chartBarrasPNG(rankUsuarioArr.slice(0,8).map(([n,v])=>({label:n,value:v.monto})), {title:'Riesgo por usuario', color:'#'+BRAND.purple, money:true, ancho:470, alto:Math.max(180,42*Math.min(rankUsuarioArr.length,8)+56)});
-  const lineImg=historialMismoPar.length>1 ? chartLineaPNG(
-    historialMismoPar.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})),
-    historialMismoPar.map(x=>x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB),
+  const lineImg=historialMismoSet.length>1 ? chartLineaPNG(
+    historialMismoSet.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})),
+    historialMismoSet.map(x=>x.resumen.montoRiesgoDupPorFuente.reduce((a,b)=>a+b,0)),
     {title:'Evolución del riesgo en el tiempo', color:'#'+BRAND.gold, ancho:960, alto:220}
   ) : null;
 
   const rowsHtml=(rows,cols)=>rows.map((row,i)=>'<tr class="'+(i%2?'odd':'')+'">'+cols.map(k=>'<td>'+(k==='importe'?fmtMoneda(row[k]):(k==='fecha'?fmtFecha(row[k]):(row[k]||'—')))+'</td>').join('')+'</tr>').join('');
   const cols=['fecha','comprobante','proveedor','unidadNegocio','usuario','importe'];
   const colsLbl=['Fecha','Comprobante','Proveedor','Unidad','Usuario','Importe'];
+  const colsConFuente=['_fuenteNombre',...cols];
+  const colsLblConFuente=['Fuente',...colsLbl];
 
   let html='<!doctype html><html><head><meta charset="utf-8"><title>Informe Gerencial — Frigurso Conciliaciones</title><style>'+
     '*{box-sizing:border-box;} body{font-family:Arial,Helvetica,sans-serif;color:#0F172A;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'+
@@ -1475,36 +1555,43 @@ function exportarPDF(){
     '</style></head><body>';
 
   html+='<div class="hdr"><div class="tag">Frigurso Conciliaciones</div><h1>Informe Gerencial</h1>'+
-    '<div class="meta">'+fmtFechaHora(c.fecha)+' · '+c.fuenteANombre+(c.esSelfCheck?' (revisión interna de duplicados)':' vs '+c.fuenteBNombre)+'</div></div>';
+    '<div class="meta">'+fmtFechaHora(c.fecha)+' · '+nombresFuentes+(c.esSelfCheck?' (revisión interna de duplicados)':'')+'</div></div>';
 
   html+='<div class="wrap">';
   html+='<div class="kpis">'+
-    '<div class="kpi" style="--c:#3B82F6"><div class="l">Registros analizados</div><div class="v">'+totalRegistros+'</div><div class="s">'+(c.esSelfCheck?c.fuenteANombre:c.fuenteANombre+' + '+c.fuenteBNombre)+'</div></div>'+
-    '<div class="kpi" style="--c:#22C55E"><div class="l">% Conciliado</div><div class="v">'+(c.esSelfCheck?'—':pctConciliado+'%')+'</div><div class="s">'+r.countConciliados+' pares cruzados</div></div>'+
-    '<div class="kpi" style="--c:#EF4444"><div class="l">Monto pendiente</div><div class="v">'+fmtMoneda(r.montoPendientesA+r.montoPendientesB)+'</div><div class="s">'+(r.countPendientesA+r.countPendientesB)+' registros sin cruzar</div></div>'+
+    '<div class="kpi" style="--c:#3B82F6"><div class="l">Registros analizados</div><div class="v">'+totalRegistros+'</div><div class="s">'+nombresFuentes+'</div></div>'+
+    '<div class="kpi" style="--c:#22C55E"><div class="l">% Completo</div><div class="v">'+(c.esSelfCheck?'—':pctCompleto+'%')+'</div><div class="s">'+r.countCompletos+' registros completos</div></div>'+
+    '<div class="kpi" style="--c:#EF4444"><div class="l">Monto incompleto</div><div class="v">'+fmtMoneda(r.montoIncompleto)+'</div><div class="s">'+r.countIncompletos+' registros incompletos</div></div>'+
     '<div class="kpi" style="--c:#F5B53F"><div class="l">Riesgo por duplicados</div><div class="v">'+fmtMoneda(montoRiesgoTotal)+'</div><div class="s">'+gruposDupTotal+' grupos detectados</div></div>'+
   '</div>';
 
-  html+='<h2>Panorama general</h2><div class="charts"><img src="'+donutImg+'"><img src="'+barUnidadImg+'"></div>';
+  html+='<h2>Panorama general</h2><div class="charts">'+(coberturaImg?'<img src="'+donutImg+'"><img src="'+coberturaImg+'">':'<img src="'+donutImg+'"><img src="'+barUnidadImg+'">')+'</div>';
+  if(coberturaImg) html+='<div class="charts"><img src="'+barUnidadImg+'"><img src="'+barUsuarioImg+'"></div>';
   html+= lineImg
-    ? '<div class="charts"><img src="'+barUsuarioImg+'"><img src="'+lineImg+'"></div>'
-    : '<div class="charts full"><img src="'+barUsuarioImg+'"></div>';
+    ? (coberturaImg? '<div class="charts full"><img src="'+lineImg+'"></div>' : '<div class="charts"><img src="'+barUsuarioImg+'"><img src="'+lineImg+'"></div>')
+    : (coberturaImg? '' : '<div class="charts full"><img src="'+barUsuarioImg+'"></div>');
 
-  if(c.duplicadosA.length||c.duplicadosB.length){
-    const grupos=[...c.duplicadosA,...c.duplicadosB];
+  const dupGrupos=[];
+  c.duplicadosPorFuente.forEach((grupos,fi)=>grupos.forEach(g=>dupGrupos.push({g,fi})));
+  if(dupGrupos.length){
     let rowsD='';
-    grupos.forEach((g,gi)=>{
+    dupGrupos.forEach(({g,fi},gi)=>{
       const importes=g.map(x=>x.importe||0); const max=Math.max(...importes); const keepIdx=importes.indexOf(max);
       g.forEach((row,i)=>{
-        rowsD+='<tr class="'+(gi%2?'odd':'')+'"><td>#'+(gi+1)+'</td><td>'+(i===keepIdx?'<span class="badge keep">✓ Mantener</span>':'<span class="badge risk">⚠ Riesgo</span>')+'</td><td>'+(row.comprobante||'—')+'</td><td>'+(row.proveedor||'—')+'</td><td>'+(row.unidadNegocio||'—')+'</td><td>'+(row.usuario||'—')+'</td><td>'+fmtFecha(row.fecha)+'</td><td>'+fmtMoneda(row.importe)+'</td></tr>';
+        rowsD+='<tr class="'+(gi%2?'odd':'')+'"><td>#'+(gi+1)+'</td><td>'+nombreFuente(c,fi)+'</td><td>'+(i===keepIdx?'<span class="badge keep">✓ Mantener</span>':'<span class="badge risk">⚠ Riesgo</span>')+'</td><td>'+(row.comprobante||'—')+'</td><td>'+(row.proveedor||'—')+'</td><td>'+(row.unidadNegocio||'—')+'</td><td>'+(row.usuario||'—')+'</td><td>'+fmtFecha(row.fecha)+'</td><td>'+fmtMoneda(row.importe)+'</td></tr>';
       });
     });
-    html+='<h2>Duplicados detectados ('+grupos.length+' grupos)</h2><table><tr><th>Grupo</th><th>Estado</th><th>Comprobante</th><th>Proveedor</th><th>Unidad</th><th>Usuario</th><th>Fecha</th><th>Importe</th></tr>'+rowsD+'</table>';
+    html+='<h2>Duplicados detectados ('+dupGrupos.length+' grupos)</h2><table><tr><th>Grupo</th><th>Fuente</th><th>Estado</th><th>Comprobante</th><th>Proveedor</th><th>Unidad</th><th>Usuario</th><th>Fecha</th><th>Importe</th></tr>'+rowsD+'</table>';
   }
   if(rankUnidadArr.length) html+='<h2>Ranking por unidad de negocio</h2><table><tr><th>Unidad</th><th>Registros en riesgo</th><th>Monto en riesgo</th></tr>'+rankUnidadArr.map(([n,v],i)=>'<tr class="'+(i%2?'odd':'')+'"><td>'+n+'</td><td>'+v.cant+'</td><td>'+fmtMoneda(v.monto)+'</td></tr>').join('')+'</table>';
   if(rankUsuarioArr.length) html+='<h2>Ranking por usuario</h2><table><tr><th>Usuario</th><th>Registros en riesgo</th><th>Monto en riesgo</th></tr>'+rankUsuarioArr.map(([n,v],i)=>'<tr class="'+(i%2?'odd':'')+'"><td>'+n+'</td><td>'+v.cant+'</td><td>'+fmtMoneda(v.monto)+'</td></tr>').join('')+'</table>';
-  if(c.pendientesA.length) html+='<h2>Pendientes en '+c.fuenteANombre+'</h2><table><tr>'+colsLbl.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+rowsHtml(c.pendientesA,cols)+'</table>';
-  if(c.pendientesB.length) html+='<h2>Pendientes en '+c.fuenteBNombre+'</h2><table><tr>'+colsLbl.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+rowsHtml(c.pendientesB,cols)+'</table>';
+  if(!c.esSelfCheck && r.countIncompletos>0){
+    const incompletasConFuente=[];
+    c.instancias.filter(i=>!i.completo).forEach(ins=>{
+      ins.presentes.forEach(fi=>ins.filasPorFuente[fi].forEach(row=>incompletasConFuente.push(Object.assign({_fuenteNombre:nombreFuente(c,fi)}, row))));
+    });
+    html+='<h2>Incompletos ('+r.countIncompletos+')</h2><table><tr>'+colsLblConFuente.map(l=>'<th>'+l+'</th>').join('')+'</tr>'+rowsHtml(incompletasConFuente,colsConFuente)+'</table>';
+  }
 
   html+='<div class="footer">Generado por Frigurso Conciliaciones · '+fmtFechaHora(new Date().toISOString())+'</div>';
   html+='</div></body></html>';
@@ -1516,7 +1603,8 @@ function exportarPDF(){
 async function exportarPPT(){
   const c=_conciliacionActual; if(!c) return;
   if(typeof PptxGenJS==='undefined'){ toast('No se pudo cargar la librería de PowerPoint (revisá tu conexión)'); return; }
-  const {r,totalRegistros,pctConciliado,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoPar}=calcularInformeData(c);
+  const {r,totalRegistros,pctCompleto,montoRiesgoTotal,gruposDupTotal,rankUnidadArr,rankUsuarioArr,historialMismoSet,coberturaPorFuente}=calcularInformeData(c);
+  const nombresFuentes=c.fuentes.map(f=>f.nombre).join('  ·  ');
 
   const pptx=new PptxGenJS();
   pptx.defineLayout({name:'FG',width:10,height:5.63});
@@ -1532,14 +1620,14 @@ async function exportarPPT(){
   s.addText('FRIGURSO CONCILIACIONES', {x:0.5,y:1.65,w:9,h:0.4,fontSize:13,bold:true,color:BRAND.teal,charSpacing:2});
   s.addText('Informe Gerencial', {x:0.5,y:2.0,w:9,h:0.7,fontSize:32,bold:true,color:'FFFFFF'});
   s.addText(fmtFechaHora(c.fecha), {x:0.5,y:2.75,w:9,h:0.4,fontSize:13,color:TXT2});
-  s.addText(c.fuenteANombre+(c.esSelfCheck?'  ·  Revisión interna de duplicados':'  vs  '+c.fuenteBNombre), {x:0.5,y:3.1,w:9,h:0.4,fontSize:13,color:TXT});
+  s.addText(nombresFuentes+(c.esSelfCheck?'  ·  Revisión interna de duplicados':''), {x:0.5,y:3.1,w:9,h:0.4,fontSize:13,color:TXT});
 
   // 2) KPIs
   s=slideBase(); titulo(s,'KPIs principales');
   const kpis=[
     ['Registros analizados', String(totalRegistros), BRAND.accent],
-    ['% Conciliado', (c.esSelfCheck?'—':pctConciliado+'%'), BRAND.green],
-    ['Monto pendiente', fmtMoneda(r.montoPendientesA+r.montoPendientesB), BRAND.red],
+    ['% Completo', (c.esSelfCheck?'—':pctCompleto+'%'), BRAND.green],
+    ['Monto incompleto', fmtMoneda(r.montoIncompleto), BRAND.red],
     ['Riesgo por duplicados', fmtMoneda(montoRiesgoTotal), BRAND.gold],
   ];
   kpis.forEach((k,i)=>{
@@ -1560,6 +1648,20 @@ async function exportarPPT(){
       showLegend:true, legendPos:'r', legendColor:TXT,
       showPercent:true, dataLabelColor:'FFFFFF', dataLabelFontSize:11,
       holeSize:55,
+    });
+  }
+
+  // 3b) Cobertura por fuente
+  if(coberturaPorFuente.length){
+    s=slideBase(); titulo(s,'Cobertura por fuente');
+    s.addChart(pptx.ChartType.bar, [
+      {name:'Completo', labels:coberturaPorFuente.map(x=>x.label), values:coberturaPorFuente.map(x=>x.a)},
+      {name:'Le falta', labels:coberturaPorFuente.map(x=>x.label), values:coberturaPorFuente.map(x=>x.b)},
+    ], {
+      x:0.5,y:0.95,w:9,h:4.4, barDir:'bar', barGrouping:'stacked',
+      chartColors:[BRAND.green, BRAND.red], showValue:true, dataLabelColor:TXT, dataLabelFontSize:9,
+      catAxisLabelColor:TXT2, valAxisLabelColor:TXT2, catAxisLabelFontSize:10, valAxisLabelFontSize:9,
+      showLegend:true, legendPos:'b', legendColor:TXT,
     });
   }
 
@@ -1588,9 +1690,9 @@ async function exportarPPT(){
   }
 
   // 6) Evolución
-  if(historialMismoPar.length>1){
+  if(historialMismoSet.length>1){
     s=slideBase(); titulo(s,'Evolución del riesgo en el tiempo');
-    s.addChart(pptx.ChartType.line, [{name:'Riesgo', labels:historialMismoPar.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})), values:historialMismoPar.map(x=>Math.round((x.resumen.montoRiesgoDupA+x.resumen.montoRiesgoDupB)*100)/100)}], {
+    s.addChart(pptx.ChartType.line, [{name:'Riesgo', labels:historialMismoSet.map(x=>new Date(x.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})), values:historialMismoSet.map(x=>Math.round(x.resumen.montoRiesgoDupPorFuente.reduce((a,b)=>a+b,0)*100)/100)}], {
       x:0.5,y:0.95,w:9,h:4.4,
       chartColors:[BRAND.gold], lineSize:2.5, lineDataSymbol:'circle', lineDataSymbolSize:6,
       showValue:true, dataLabelColor:TXT, dataLabelFontSize:9,
@@ -1600,11 +1702,13 @@ async function exportarPPT(){
   }
 
   // 7) Duplicados
-  const grupos=[...c.duplicadosA,...c.duplicadosB];
+  const grupos=[];
+  c.duplicadosPorFuente.forEach((gs,fi)=>gs.forEach(g=>grupos.push({g,fi})));
   if(grupos.length){
     s=slideBase(); titulo(s,'Duplicados detectados (top 12 filas)');
     const rows=[[
       {text:'Grupo',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
+      {text:'Fuente',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
       {text:'Comprobante',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
       {text:'Proveedor',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
       {text:'Unidad',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
@@ -1612,13 +1716,14 @@ async function exportarPPT(){
       {text:'Importe',options:{bold:true,color:'FFFFFF',fill:{color:CARD}}},
     ]];
     let n=0;
-    grupos.forEach((g,gi)=>{
+    grupos.forEach(({g,fi},gi)=>{
       const importes=g.map(x=>x.importe||0); const max=Math.max(...importes); const keepIdx=importes.indexOf(max);
       g.forEach((row,i)=>{
         if(n>=12) return; n++;
         const risk=i!==keepIdx;
         rows.push([
           {text:'#'+(gi+1), options:{color:TXT2}},
+          {text:nombreFuente(c,fi), options:{color:TXT2}},
           {text:row.comprobante||'—', options:{color:TXT}},
           {text:row.proveedor||'—', options:{color:TXT}},
           {text:row.unidadNegocio||'—', options:{color:TXT}},
@@ -1650,9 +1755,12 @@ function renderHistorial(){
   vacio.style.display='none';
   cont.innerHTML=CONCILIACIONES.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(c=>{
     const r=c.resumen;
+    const gruposDupTotal=r.countGruposDupPorFuente.reduce((a,b)=>a+b,0);
+    const riesgoTotal=r.montoRiesgoDupPorFuente.reduce((a,b)=>a+b,0);
+    const nombresFuentes=c.fuentes.map(f=>f.nombre).join(' + ');
     return '<div class="hist-item">'+
-      '<div><div class="hist-main">'+c.fuenteANombre+(c.esSelfCheck?' (interna)':' vs '+c.fuenteBNombre)+'</div>'+
-      '<div class="hist-sub">'+fmtFechaHora(c.fecha)+' · '+r.countConciliados+' conciliados · '+(r.countGruposDupA+r.countGruposDupB)+' grupos duplicados · Riesgo '+fmtMoneda(r.montoRiesgoDupA+r.montoRiesgoDupB)+'</div></div>'+
+      '<div><div class="hist-main">'+nombresFuentes+(c.esSelfCheck?' (interna)':'')+'</div>'+
+      '<div class="hist-sub">'+fmtFechaHora(c.fecha)+' · '+(c.esSelfCheck?'':r.countCompletos+' completos · ')+gruposDupTotal+' grupos duplicados · Riesgo '+fmtMoneda(riesgoTotal)+'</div></div>'+
       '<div style="display:flex;gap:6px;">'+
         '<button class="btn btn-ghost btn-sm" onclick="verConciliacion(\''+c.id+'\')">Ver informe</button>'+
         '<button class="btn btn-danger btn-sm" onclick="borrarConciliacion(\''+c.id+'\')">🗑️</button>'+
@@ -1725,9 +1833,9 @@ function fgOlvideAcceso(){
 (async function init(){
   await abrirDB();
   FUENTES=await dbGetAll('fuentes');
-  CONCILIACIONES=await dbGetAll('conciliaciones');
+  CONCILIACIONES=(await dbGetAll('conciliaciones')).map(normalizarConciliacion);
   renderFuentes();
-  renderConciliarSelects();
+  renderConciliarFuentesList();
   if(CONCILIACIONES.length){
     _conciliacionActual=CONCILIACIONES.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
     renderResultados(_conciliacionActual);
